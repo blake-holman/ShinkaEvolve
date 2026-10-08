@@ -9,13 +9,17 @@ import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from shinka.cli import run as cli_run
+from shinka.core.async_runner import ShinkaEvolveRunner
 from shinka.llm.client import get_async_client_llm, get_client_llm
 from shinka.llm.kwargs import sample_model_kwargs
 from shinka.llm.providers.headless import (
+    _build_headless_command,
     parse_headless_model,
     query_headless,
     query_headless_async,
@@ -133,6 +137,44 @@ def test_resolve_headless_model_backend():
     assert resolved.provider == "headless"
     assert resolved.api_model_name == "headless/codex@gpt-5.5?effort=high"
     assert resolved.base_url is None
+
+
+def test_headless_command_accepts_yolo_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHINKA_HEADLESS_COMMAND", "headless")
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("test", encoding="utf-8")
+
+    command = _build_headless_command(
+        model=parse_headless_model("headless/claude"),
+        prompt_path=prompt,
+        work_dir=str(tmp_path),
+        allow="yolo",
+    )
+
+    assert command[command.index("--allow") + 1] == "yolo"
+
+
+@pytest.mark.parametrize("model", ["headless/claude", "gpt-5.1"])
+def test_initial_program_scopes_work_dir_to_headless(tmp_path, model):
+    query = AsyncMock(side_effect=RuntimeError("request captured"))
+    runner = SimpleNamespace(
+        results_dir=str(tmp_path),
+        prompt_sampler=SimpleNamespace(
+            initial_program_prompt=Mock(return_value=("system", "user")),
+        ),
+        llm_selection=None,
+        llm=SimpleNamespace(get_kwargs=Mock(return_value={"model_name": model}), query=query),
+        evo_config=SimpleNamespace(max_patch_attempts=1),
+    )
+    with pytest.raises(RuntimeError, match="request captured"):
+        asyncio.run(ShinkaEvolveRunner._generate_initial_program(runner))
+    kwargs = query.call_args.kwargs["llm_kwargs"]
+    if model.startswith("headless/"):
+        assert kwargs["headless_work_dir"] == str(tmp_path / "gen_0")
+        assert (tmp_path / "gen_0").is_dir()
+    else:
+        assert kwargs == {"model_name": model}
+        assert not (tmp_path / "gen_0").exists()
 
 
 def test_get_client_allows_headless_without_api_client():
@@ -393,6 +435,8 @@ def test_shinka_run_full_headless_cli_mutation_succeeds(tmp_path, monkeypatch):
     )
 
     assert exit_code == 0
+    generation_prompts = list(results_dir.glob("gen_1/headless_prompts/prompt_*.md"))
+    assert generation_prompts, sorted(str(path) for path in results_dir.rglob("*"))
     attempt_prompts = list(results_dir.glob("gen_1/attempts/**/headless_prompt.md"))
     assert attempt_prompts, sorted(str(path) for path in results_dir.rglob("*"))
     assert "Current program" in attempt_prompts[0].read_text(encoding="utf-8")

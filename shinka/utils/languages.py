@@ -32,6 +32,7 @@ _LANGUAGE_EXTENSIONS: dict[str, str] = {
     "json": "json",
     "json5": "json",
     "julia": "jl",
+    "lean": "lean",
     "markdown": "md",
     "fortran": "f90",
     "wolfram": "wl",
@@ -48,6 +49,7 @@ _EVOLVE_COMMENT_PREFIXES: dict[str, str] = {
     "json": "//",
     "json5": "//",
     "julia": "#",
+    "lean": "--",
     "markdown": "<!--",
     "fortran": "!",
     "wolfram": "(*",
@@ -64,6 +66,7 @@ _LANGUAGE_FENCE_TAGS: dict[str, tuple[str, ...]] = {
     "json": ("json",),
     "json5": ("json5", "json"),
     "julia": ("julia", "jl"),
+    "lean": ("lean",),
     "markdown": ("markdown", "md"),
     "fortran": ("fortran", "f90", "f95", "f03", "f08"),
     "wolfram": ("wolfram", "mathematica", "wl", "wls"),
@@ -130,6 +133,10 @@ _EVOLVE_MARKER_PATTERNS: dict[str, tuple[re.Pattern, re.Pattern]] = {
         re.compile(r"^\s*#\s*EVOLVE-BLOCK-START\s*$"),
         re.compile(r"^\s*#\s*EVOLVE-BLOCK-END\s*$"),
     ),
+    "lean": (
+        re.compile(r"^\s*--\s*EVOLVE-BLOCK-START\s*$"),
+        re.compile(r"^\s*--\s*EVOLVE-BLOCK-END\s*$"),
+    ),
     "cpp": (
         re.compile(r"^\s*//\s*EVOLVE-BLOCK-START\s*$"),
         re.compile(r"^\s*//\s*EVOLVE-BLOCK-END\s*$"),
@@ -179,6 +186,7 @@ _EVOLVE_MARKER_PATTERNS: dict[str, tuple[re.Pattern, re.Pattern]] = {
 _EVOLVE_MARKER_EXAMPLES: dict[str, tuple[str, str]] = {
     "python": ("# EVOLVE-BLOCK-START", "# EVOLVE-BLOCK-END"),
     "julia": ("# EVOLVE-BLOCK-START", "# EVOLVE-BLOCK-END"),
+    "lean": ("-- EVOLVE-BLOCK-START", "-- EVOLVE-BLOCK-END"),
     "cpp": ("// EVOLVE-BLOCK-START", "// EVOLVE-BLOCK-END"),
     "go": ("// EVOLVE-BLOCK-START", "// EVOLVE-BLOCK-END"),
     "cuda": ("// EVOLVE-BLOCK-START", "// EVOLVE-BLOCK-END"),

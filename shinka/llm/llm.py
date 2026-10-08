@@ -53,6 +53,7 @@ class LLMClient:
         output_model: Optional[BaseModel] = None,
         verbose: bool = True,
         headless_work_dir: Optional[str] = None,
+        headless_allow: str = "read-only",
     ):
         self.temperatures = temperatures
         self.max_tokens = max_tokens
@@ -65,14 +66,18 @@ class LLMClient:
         self.structured_output = output_model is not None
         self.verbose = verbose
         self.headless_work_dir = headless_work_dir
+        self.headless_allow = headless_allow
 
     def _attach_headless_work_dir(self, llm_kwargs: Dict) -> Dict:
         model_name = llm_kwargs.get("model_name")
-        if not model_name or self.headless_work_dir is None:
+        if not model_name:
             return llm_kwargs
-        if resolve_model_backend(model_name).provider != "headless":
+        if not model_name.startswith("headless/"):
             return llm_kwargs
-        return {**llm_kwargs, "headless_work_dir": self.headless_work_dir}
+        defaults = {"headless_allow": self.headless_allow}
+        if self.headless_work_dir is not None:
+            defaults["headless_work_dir"] = self.headless_work_dir
+        return {**defaults, **llm_kwargs}
 
     def batch_query(
         self,
@@ -386,6 +391,7 @@ class AsyncLLMClient:
         output_model: Optional[BaseModel] = None,
         verbose: bool = True,
         headless_work_dir: Optional[str] = None,
+        headless_allow: str = "read-only",
     ):
         self.temperatures = temperatures
         self.max_tokens = max_tokens
@@ -398,14 +404,18 @@ class AsyncLLMClient:
         self.structured_output = output_model is not None
         self.verbose = verbose
         self.headless_work_dir = headless_work_dir
+        self.headless_allow = headless_allow
 
     def _attach_headless_work_dir(self, llm_kwargs: Dict) -> Dict:
         model_name = llm_kwargs.get("model_name")
-        if not model_name or self.headless_work_dir is None:
+        if not model_name:
             return llm_kwargs
-        if resolve_model_backend(model_name).provider != "headless":
+        if not model_name.startswith("headless/"):
             return llm_kwargs
-        return {**llm_kwargs, "headless_work_dir": self.headless_work_dir}
+        defaults = {"headless_allow": self.headless_allow}
+        if self.headless_work_dir is not None:
+            defaults["headless_work_dir"] = self.headless_work_dir
+        return {**defaults, **llm_kwargs}
 
     async def batch_query(
         self,

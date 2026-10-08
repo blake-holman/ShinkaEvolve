@@ -147,7 +147,10 @@ def _build_headless_command(
     model: HeadlessModel,
     prompt_path: Path,
     work_dir: str | None,
+    allow: str = "read-only",
 ) -> list[str]:
+    if allow not in {"read-only", "yolo"}:
+        raise ValueError("Headless allow mode must be 'read-only' or 'yolo'.")
     resolved_work_dir = str(Path(work_dir or os.getcwd()).absolute())
     cmd = [
         *headless_command_prefix(),
@@ -157,7 +160,7 @@ def _build_headless_command(
         "--work-dir",
         resolved_work_dir,
         "--allow",
-        "read-only",
+        allow,
         "--usage",
     ]
     if model.agent_model:
@@ -403,6 +406,7 @@ def query_headless(
         raise ValueError("Headless does not support structured output.")
 
     headless_work_dir = kwargs.pop("headless_work_dir", None)
+    headless_allow = kwargs.pop("headless_allow", "read-only")
     parsed_model = parse_headless_model(model)
     prompt_path = _write_prompt_file(
         work_dir=headless_work_dir,
@@ -414,6 +418,7 @@ def query_headless(
         model=parsed_model,
         prompt_path=prompt_path,
         work_dir=headless_work_dir,
+        allow=headless_allow,
     )
 
     try:
@@ -462,6 +467,7 @@ async def query_headless_async(
         raise ValueError("Headless does not support structured output.")
 
     headless_work_dir = kwargs.pop("headless_work_dir", None)
+    headless_allow = kwargs.pop("headless_allow", "read-only")
     parsed_model = parse_headless_model(model)
     prompt_path = _write_prompt_file(
         work_dir=headless_work_dir,
@@ -473,6 +479,7 @@ async def query_headless_async(
         model=parsed_model,
         prompt_path=prompt_path,
         work_dir=headless_work_dir,
+        allow=headless_allow,
     )
 
     try:

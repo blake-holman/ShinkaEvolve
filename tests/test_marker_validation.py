@@ -12,6 +12,7 @@ from shinka.edit import apply_full_patch, apply_diff_patch
 WELL_FORMED = {
     "python": "# EVOLVE-BLOCK-START\nx = 1\n# EVOLVE-BLOCK-END",
     "julia": "# EVOLVE-BLOCK-START\nfunction f(x) end\n# EVOLVE-BLOCK-END",
+    "lean": "-- EVOLVE-BLOCK-START\ndef value : Nat := 1\n-- EVOLVE-BLOCK-END",
     "cpp": "// EVOLVE-BLOCK-START\nint x;\n// EVOLVE-BLOCK-END",
     "cuda": "// EVOLVE-BLOCK-START\n__device__ int f();\n// EVOLVE-BLOCK-END",
     "rust": "// EVOLVE-BLOCK-START\nfn f() {}\n// EVOLVE-BLOCK-END",

@@ -1881,6 +1881,10 @@ class ShinkaEvolveRunner:
 
         # Get LLM kwargs for metadata storage
         llm_kwargs = self.llm.get_kwargs(model_sample_probs=model_sample_probs)
+        if llm_kwargs["model_name"].startswith("headless/"):
+            generation_dir = Path(self.results_dir) / f"{FOLDER_PREFIX}_0"
+            generation_dir.mkdir(parents=True, exist_ok=True)
+            llm_kwargs["headless_work_dir"] = str(generation_dir)
 
         total_costs = 0.0
 
@@ -1890,6 +1894,7 @@ class ShinkaEvolveRunner:
                 system_msg=sys_msg,
                 model_sample_probs=model_sample_probs,
                 model_posterior=model_posterior,
+                llm_kwargs=llm_kwargs,
             )
 
             if response is None or response.content is None:
@@ -3446,6 +3451,10 @@ class ShinkaEvolveRunner:
             msg_history = []
 
             llm_kwargs = self.llm.get_kwargs(model_sample_probs=model_sample_probs)
+            if llm_kwargs["model_name"].startswith("headless/"):
+                generation_dir = Path(self.results_dir) / f"{FOLDER_PREFIX}_{generation}"
+                generation_dir.mkdir(parents=True, exist_ok=True)
+                llm_kwargs["headless_work_dir"] = str(generation_dir)
 
             if self.llm_selection is not None:
                 model_name = llm_kwargs.get("model_name", "unknown")
@@ -3458,6 +3467,7 @@ class ShinkaEvolveRunner:
                     msg_history=msg_history,
                     model_sample_probs=model_sample_probs,
                     model_posterior=model_posterior,
+                    llm_kwargs=llm_kwargs,
                 )
 
                 if not response or not response.content:
@@ -3668,6 +3678,10 @@ class ShinkaEvolveRunner:
 
             # Use provided model_sample_probs (selected once before all loops)
             llm_kwargs = self.llm.get_kwargs(model_sample_probs=model_sample_probs)
+            if llm_kwargs["model_name"].startswith("headless/"):
+                generation_dir = Path(self.results_dir) / f"{FOLDER_PREFIX}_{generation}"
+                generation_dir.mkdir(parents=True, exist_ok=True)
+                llm_kwargs["headless_work_dir"] = str(generation_dir)
 
             # Update LLM selection with submission
             if self.llm_selection is not None:
@@ -3682,6 +3696,7 @@ class ShinkaEvolveRunner:
                     msg_history=msg_history,
                     model_sample_probs=model_sample_probs,
                     model_posterior=model_posterior,
+                    llm_kwargs=llm_kwargs,
                 )
 
                 if not response or not response.content:
