@@ -5,7 +5,6 @@ import json
 import os
 import shlex
 import subprocess
-import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -24,7 +23,6 @@ HEADLESS_COMMAND_ENV = "SHINKA_HEADLESS_COMMAND"
 HEADLESS_TIMEOUT_ENV = "SHINKA_HEADLESS_TIMEOUT"
 
 _VALID_EFFORTS = {"low", "medium", "high", "xhigh"}
-_THREAD_LOCK = threading.Lock()
 _CLAUDE_TRANSIENT_RETRIES = 2
 _CLAUDE_TRANSIENT_BACKOFF_SECONDS = 3.0
 
@@ -51,14 +49,6 @@ def headless_timeout() -> float:
     if timeout <= 0:
         raise ValueError(f"{HEADLESS_TIMEOUT_ENV} must be > 0.")
     return timeout
-
-
-def _thread_cli_lock() -> threading.Lock:
-    return _THREAD_LOCK
-
-
-async def _acquire_cli_lock_async() -> None:
-    await asyncio.to_thread(_THREAD_LOCK.acquire)
 
 
 def parse_headless_model(model_name: str) -> HeadlessModel:
@@ -427,11 +417,10 @@ def query_headless(
     )
 
     try:
-        with _thread_cli_lock():
-            completed = _run_headless_command_sync(
-                model=parsed_model,
-                command=command,
-            )
+        completed = _run_headless_command_sync(
+            model=parsed_model,
+            command=command,
+        )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError(
             f"Headless query timed out after {headless_timeout()}s."
@@ -486,19 +475,15 @@ async def query_headless_async(
         work_dir=headless_work_dir,
     )
 
-    await _acquire_cli_lock_async()
     try:
-        try:
-            completed = await _run_headless_command_async(
-                model=parsed_model,
-                command=command,
-            )
-        except asyncio.TimeoutError as exc:
-            raise TimeoutError(
-                f"Headless query timed out after {headless_timeout()}s."
-            ) from exc
-    finally:
-        _THREAD_LOCK.release()
+        completed = await _run_headless_command_async(
+            model=parsed_model,
+            command=command,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"Headless query timed out after {headless_timeout()}s."
+        ) from exc
 
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()

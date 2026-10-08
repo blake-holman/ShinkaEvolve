@@ -5,6 +5,9 @@ import shlex
 import stat
 import sys
 import asyncio
+import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -237,16 +240,18 @@ def test_query_headless_accepts_nested_cost_usage(tmp_path, monkeypatch):
     assert result.thinking_tokens == 3
 
 
-def test_query_headless_serializes_claude_async_calls(tmp_path, monkeypatch):
+@pytest.mark.parametrize("agent", ["codex", "claude"])
+def test_query_headless_allows_parallel_async_calls(tmp_path, monkeypatch, agent):
     active = 0
     max_active = 0
+    both_started = asyncio.Event()
 
     class FakeProcess:
         returncode = 0
 
         async def communicate(self):
             nonlocal active
-            await asyncio.sleep(0.01)
+            await asyncio.wait_for(both_started.wait(), timeout=2)
             active -= 1
             return (
                 b"content\n"
@@ -257,24 +262,26 @@ def test_query_headless_serializes_claude_async_calls(tmp_path, monkeypatch):
         def kill(self):
             raise AssertionError("fake process should not time out")
 
-    async def fake_create_subprocess_shell(*args, **kwargs):
+    async def fake_create_subprocess(*args, **kwargs):
         nonlocal active, max_active
         active += 1
         max_active = max(max_active, active)
+        if active == 2:
+            both_started.set()
         return FakeProcess()
 
     monkeypatch.setenv("SHINKA_HEADLESS_COMMAND", "headless")
     monkeypatch.setattr(
         asyncio,
-        "create_subprocess_shell",
-        fake_create_subprocess_shell,
+        "create_subprocess_shell" if agent == "claude" else "create_subprocess_exec",
+        fake_create_subprocess,
     )
 
     async def run_queries():
-        await asyncio.gather(
+        return await asyncio.gather(
             query_headless_async(
                 None,
-                "headless/claude",
+                f"headless/{agent}",
                 "user request",
                 "system instructions",
                 [],
@@ -283,7 +290,7 @@ def test_query_headless_serializes_claude_async_calls(tmp_path, monkeypatch):
             ),
             query_headless_async(
                 None,
-                "headless/claude",
+                f"headless/{agent}",
                 "user request",
                 "system instructions",
                 [],
@@ -292,9 +299,43 @@ def test_query_headless_serializes_claude_async_calls(tmp_path, monkeypatch):
             ),
         )
 
-    asyncio.run(run_queries())
+    results = asyncio.run(run_queries())
 
-    assert max_active == 1
+    assert max_active == 2
+    assert all(result.content == "content" for result in results)
+    prompts = [result.kwargs["headless_prompt_path"] for result in results]
+    assert len(set(prompts)) == 2
+    assert all(Path(prompt).is_file() for prompt in prompts)
+
+
+@pytest.mark.parametrize("agent", ["codex", "claude"])
+def test_query_headless_allows_parallel_sync_calls(tmp_path, monkeypatch, agent):
+    both_started = threading.Barrier(2)
+
+    def fake_run(command, **kwargs):
+        args = shlex.split(command) if isinstance(command, str) else command
+        prompt = Path(args[args.index("--prompt-file") + 1]).read_text()
+        reply = prompt.split("# User Request\n\n", 1)[1].strip()
+        # A shared invocation lock would prevent the second call reaching here.
+        both_started.wait(timeout=2)
+        return subprocess.CompletedProcess(
+            command, 0, reply + '\n{"usage":{"input_tokens":1,"output_tokens":1}}', ""
+        )
+
+    monkeypatch.setenv("SHINKA_HEADLESS_COMMAND", "headless")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    def request(message):
+        return query_headless(
+            None, f"headless/{agent}", message, "system instructions", [],
+            output_model=None, headless_work_dir=str(tmp_path),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(request, ["alpha", "beta"]))
+
+    assert [result.content for result in results] == ["alpha", "beta"]
+    assert len({result.kwargs["headless_prompt_path"] for result in results}) == 2
 
 
 def test_validate_model_env_access_runs_headless_check(tmp_path, monkeypatch):
