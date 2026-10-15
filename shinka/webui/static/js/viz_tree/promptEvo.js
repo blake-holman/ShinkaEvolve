@@ -1,4 +1,5 @@
 // PromptEvo tab: evolved system prompts.
+import { debug } from '../log.js';
 import { escapeHtml } from './format.js';
 import { selectNodeById } from './selection.js';
 
@@ -9,7 +10,7 @@ window.metaPromptData = null;
 window.selectedPromptId = null;
 
 export async function loadAndRenderMetaPrompts() {
-    console.log("[DEBUG] Loading meta-prompt data...");
+    debug("[DEBUG] Loading meta-prompt data...");
     const container = document.getElementById('meta-prompt-tree');
     const statusEl = document.getElementById('meta-prompt-status');
     
@@ -32,9 +33,9 @@ export async function loadAndRenderMetaPrompts() {
         
         // Debug: log first prompt to see all available fields
         if (prompts && prompts.length > 0) {
-            console.log("[DEBUG] First prompt keys:", Object.keys(prompts[0]));
-            console.log("[DEBUG] First prompt program_generation:", prompts[0].program_generation);
-            console.log("[DEBUG] All program_generations:", prompts.map(p => p.program_generation));
+            debug("[DEBUG] First prompt keys:", Object.keys(prompts[0]));
+            debug("[DEBUG] First prompt program_generation:", prompts[0].program_generation);
+            debug("[DEBUG] All program_generations:", prompts.map(p => p.program_generation));
         }
         
         if (!prompts || prompts.length === 0) {
@@ -53,7 +54,7 @@ export async function loadAndRenderMetaPrompts() {
         // Track best prompt ID for auto-refresh comparison
         window.metaPromptBestId = bestPrompt ? bestPrompt.id : null;
         
-        console.log("[DEBUG] Best prompt detection:", {
+        debug("[DEBUG] Best prompt detection:", {
             totalPrompts: prompts.length,
             eligibleCount: eligiblePrompts.length,
             minPrograms,
@@ -258,7 +259,7 @@ export function renderMetaPromptTree(prompts, bestPrompt) {
     
     // Debug: log bestPrompt info for node coloring
     if (bestPrompt) {
-        console.log("[DEBUG] Best prompt for coloring:", bestPrompt.id);
+        debug("[DEBUG] Best prompt for coloring:", bestPrompt.id);
     }
     
     nodes.append("path")
@@ -270,7 +271,7 @@ export function renderMetaPromptTree(prompts, bestPrompt) {
         .attr("fill", d => {
             const isBest = bestPrompt && d.data.id === bestPrompt.id;
             if (isBest) {
-                console.log("[DEBUG] Found best node:", d.data.id);
+                debug("[DEBUG] Found best node:", d.data.id);
                 return "#f1c40f";  // Golden fill
             }
             const fitness = d.data.fitness || 0;

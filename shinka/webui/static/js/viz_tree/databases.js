@@ -1,4 +1,5 @@
 // Database discovery and the task/result selectors.
+import { debug } from '../log.js';
 import { loadDatabase } from './loader.js';
 
 // Data store for available databases and organized data
@@ -25,7 +26,7 @@ export async function findDatabases(force = false) {
             throw new Error(`Failed to load database list (HTTP ${response.status})`);
         }
         const dbs = await response.json();
-        console.log("[DEBUG] Server returned databases:", dbs);
+        debug("[DEBUG] Server returned databases:", dbs);
 
         availableDatabases = dbs;
         organizeDatabases(dbs);
@@ -46,7 +47,7 @@ export async function findDatabases(force = false) {
                 loadDatabase(dbPathFromUrl);
             } else {
                 // Database not in available list but try to load directly anyway
-                console.log("[DEBUG] DB path from URL not found in available databases, loading directly:", dbPathFromUrl);
+                debug("[DEBUG] DB path from URL not found in available databases, loading directly:", dbPathFromUrl);
                 loadDatabase(dbPathFromUrl);
             }
         } else if (dbs.length > 0 && !force) {

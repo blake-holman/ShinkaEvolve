@@ -1,9 +1,10 @@
 // Islands tab.
+import { debug } from '../log.js';
 import { displayNodeDetails } from './nodeDetails.js';
 import { escapeHtml, formatScore, isFailedProposalNode } from './format.js';
 
 function createIslandProgressionCurves(container, programs, islands, yMinOverride = null, yMaxOverride = null) {
-    console.log("[DEBUG] Creating island progression curves for", islands.length, "islands");
+    debug("[DEBUG] Creating island progression curves for", islands.length, "islands");
     
     // Clean up any existing tooltips
     d3.selectAll(".island-curve-tooltip").remove();
@@ -321,7 +322,7 @@ function createIslandProgressionCurves(container, programs, islands, yMinOverrid
 }
 
 function createIslandPopulationCurves(container, programs, islands) {
-    console.log("[DEBUG] Creating island population curves for", islands.length, "islands");
+    debug("[DEBUG] Creating island population curves for", islands.length, "islands");
     
     // Clean up any existing tooltips
     d3.selectAll(".island-pop-tooltip").remove();
@@ -578,12 +579,12 @@ function createIslandPopulationCurves(container, programs, islands) {
 }
 
 export function createIslandsVisualization(data) {
-    console.log("[DEBUG] Creating islands visualization");
+    debug("[DEBUG] Creating islands visualization");
     
     // Check if the islands tab is visible
     const islandsView = document.getElementById('islands-view');
     if (!islandsView || !islandsView.classList.contains('active')) {
-        console.log("[DEBUG] Islands view not active, skipping visualization creation");
+        debug("[DEBUG] Islands view not active, skipping visualization creation");
         return;
     }
 
@@ -971,7 +972,7 @@ export function createIslandsVisualization(data) {
                     if (sourceCorrect && targetCorrect) {
                         return "#ff8c00";
                     } else {
-                        console.log("[DEBUG] Blocking island view orange highlight for incorrect link:", d.source.data.id.substring(0, 8), "->", d.target.data.id.substring(0, 8));
+                        debug("[DEBUG] Blocking island view orange highlight for incorrect link:", d.source.data.id.substring(0, 8), "->", d.target.data.id.substring(0, 8));
                         return "#999";
                     }
                 }
@@ -1117,7 +1118,7 @@ export function createIslandsVisualization(data) {
                     if (nodeCorrect) {
                         return '#ff8c00';
                     } else {
-                        console.log("[DEBUG] Blocking island view orange highlight for incorrect node:", d.data.id.substring(0, 8), "correct:", d.data.correct);
+                        debug("[DEBUG] Blocking island view orange highlight for incorrect node:", d.data.id.substring(0, 8), "correct:", d.data.correct);
                         return "#000";
                     }
                 }

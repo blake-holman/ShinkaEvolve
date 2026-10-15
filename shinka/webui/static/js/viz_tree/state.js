@@ -1,11 +1,12 @@
 // URL and localStorage persistence of the view state.
+import { debug } from '../log.js';
 import { populateResultSelect } from './databases.js';
 import { getSelectedNodeId, selectNodeById } from './selection.js';
 
 // State persistence functions
 export function saveState() {
     if (window.isReloadingData) {
-        console.log("[DEBUG] Skipping saveState during data reload.");
+        debug("[DEBUG] Skipping saveState during data reload.");
         return;
     }
     try {
@@ -24,7 +25,7 @@ export function saveState() {
         if (state.selectedNodeId) url.searchParams.set('selected_node', state.selectedNodeId);
         
         window.history.replaceState(null, '', url);
-        console.log("[DEBUG] State saved to URL");
+        debug("[DEBUG] State saved to URL");
     } catch (error) {
         console.error("[DEBUG] Error saving state:", error);
     }
@@ -42,7 +43,7 @@ export function savePreferences() {
         };
         
         localStorage.setItem('shinka_preferences', JSON.stringify(preferences));
-        console.log("[DEBUG] Preferences saved to localStorage");
+        debug("[DEBUG] Preferences saved to localStorage");
     } catch (error) {
         console.error("[DEBUG] Error saving preferences:", error);
     }
@@ -91,7 +92,7 @@ export function restorePreferences() {
             if (panel) panel.style.width = preferences.panelWidth;
         }
         
-        console.log("[DEBUG] Preferences restored from localStorage");
+        debug("[DEBUG] Preferences restored from localStorage");
     } catch (error) {
         console.error("[DEBUG] Error restoring preferences:", error);
     }
@@ -159,7 +160,7 @@ export function restoreFromURL() {
             }
         }
         
-        console.log("[DEBUG] State restored from URL");
+        debug("[DEBUG] State restored from URL");
     } catch (error) {
         console.error("[DEBUG] Error restoring from URL:", error);
     }

@@ -1,18 +1,19 @@
 // Metrics tab.
+import { debug } from '../log.js';
 import { selectNodeById } from './selection.js';
 import { getNestedValue } from './pareto.js';
 
 export function createMetricsVisualization(data) {
-    console.log("[DEBUG] Creating metrics visualization with", data ? data.length : 0, "data points");
+    debug("[DEBUG] Creating metrics visualization with", data ? data.length : 0, "data points");
     
     const metricsContainer = document.getElementById('metrics-plots');
     if (!metricsContainer) {
-        console.log("[DEBUG] Metrics plots container not found");
+        debug("[DEBUG] Metrics plots container not found");
         return;
     }
     
     metricsContainer.innerHTML = ''; // Clear previous plots
-    console.log("[DEBUG] Cleared metrics container");
+    debug("[DEBUG] Cleared metrics container");
 
     // Filter data to only include correct programs with scores
     const validData = data.filter(d => d.correct && d.combined_score !== null && !isNaN(d.combined_score));

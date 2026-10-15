@@ -1,27 +1,28 @@
 // Ensembling tab: model posteriors.
+import { debug } from '../log.js';
 
 export function createModelPosteriorsVisualization(data) {
-    console.log("[DEBUG] ==> createModelPosteriorsVisualization called with data length:", data ? data.length : 'null');
+    debug("[DEBUG] ==> createModelPosteriorsVisualization called with data length:", data ? data.length : 'null');
     
     // Check if the model posteriors tab is visible
     const modelPosteriorsView = document.getElementById('model-posteriors-view');
-    console.log("[DEBUG] Model posteriors view element:", modelPosteriorsView);
-    console.log("[DEBUG] Model posteriors view active:", modelPosteriorsView ? modelPosteriorsView.classList.contains('active') : 'element not found');
+    debug("[DEBUG] Model posteriors view element:", modelPosteriorsView);
+    debug("[DEBUG] Model posteriors view active:", modelPosteriorsView ? modelPosteriorsView.classList.contains('active') : 'element not found');
     
     if (!modelPosteriorsView || !modelPosteriorsView.classList.contains('active')) {
-        console.log("[DEBUG] Model posteriors view not active, skipping visualization creation");
+        debug("[DEBUG] Model posteriors view not active, skipping visualization creation");
         return;
     }
     
-    console.log("[DEBUG] Model posteriors view is active, proceeding with visualization");
+    debug("[DEBUG] Model posteriors view is active, proceeding with visualization");
 
     const container = d3.select("#model-posteriors-container");
     
     // Show a loading message immediately
-    console.log("[DEBUG] Container found:", container.node());
+    debug("[DEBUG] Container found:", container.node());
     
     // Ensure the HTML structure exists - FORCE RECREATION
-    console.log("[DEBUG] FORCING HTML structure recreation");
+    debug("[DEBUG] FORCING HTML structure recreation");
     container.html(`
         <h4 style="margin: 0 0 20px 0; text-align: center;">Number of Programs Proposed by Each Model</h4>
         <div id="model-program-counts-chart" style="width: 100%; height: 340px; margin-bottom: 30px;"></div>
@@ -32,18 +33,18 @@ export function createModelPosteriorsVisualization(data) {
             <div id="model-posteriors-stats"></div>
         </div>
     `);
-    console.log("[DEBUG] HTML structure FORCED. Checking if program counts chart exists now:", !container.select("#model-program-counts-chart").empty());
-    console.log("[DEBUG] Program counts container after forced creation:", container.select("#model-program-counts-chart").node());
+    debug("[DEBUG] HTML structure FORCED. Checking if program counts chart exists now:", !container.select("#model-program-counts-chart").empty());
+    debug("[DEBUG] Program counts container after forced creation:", container.select("#model-program-counts-chart").node());
     
     container.select("#model-posteriors-chart").html("<p style='text-align: center; margin-top: 50px; color: blue;'>Loading model posteriors visualization...</p>");
     container.select("#model-program-counts-chart").html("<p style='text-align: center; margin-top: 50px; color: blue;'>Loading program counts visualization...</p>");
     
     // Debug: Check if the second chart container exists
-    console.log("[DEBUG] Program counts chart container found:", !container.select("#model-program-counts-chart").empty());
-    console.log("[DEBUG] Program counts chart container node:", container.select("#model-program-counts-chart").node());
-    console.log("[DEBUG] Main container HTML:", container.node().innerHTML.substring(0, 500) + "...");
-    console.log("[DEBUG] Looking for #model-program-counts-chart in document:", document.getElementById("model-program-counts-chart"));
-    console.log("[DEBUG] All elements with id containing 'program':", document.querySelectorAll('[id*="program"]'));
+    debug("[DEBUG] Program counts chart container found:", !container.select("#model-program-counts-chart").empty());
+    debug("[DEBUG] Program counts chart container node:", container.select("#model-program-counts-chart").node());
+    debug("[DEBUG] Main container HTML:", container.node().innerHTML.substring(0, 500) + "...");
+    debug("[DEBUG] Looking for #model-program-counts-chart in document:", document.getElementById("model-program-counts-chart"));
+    debug("[DEBUG] All elements with id containing 'program':", document.querySelectorAll('[id*="program"]'));
     
     if (!data || data.length === 0) {
         container.select("#model-posteriors-chart").html("<p style='text-align: center; margin-top: 50px;'>No data to visualize.</p>");
@@ -66,9 +67,9 @@ export function createModelPosteriorsVisualization(data) {
             typeof d.metadata.model_posteriors === 'object' &&
             Object.keys(d.metadata.model_posteriors).length > 0
         );
-        console.log("[DEBUG] Using direct metadata.model_posteriors structure");
+        debug("[DEBUG] Using direct metadata.model_posteriors structure");
     } else {
-        console.log("[DEBUG] Using metadata.llm_result.model_posteriors structure");
+        debug("[DEBUG] Using metadata.llm_result.model_posteriors structure");
     }
 
     if (programsWithPosteriors.length === 0) {
@@ -88,30 +89,30 @@ export function createModelPosteriorsVisualization(data) {
         container.select("#model-posteriors-chart").html(debugInfo);
         container.select("#model-program-counts-chart").html("<p style='text-align: center; margin-top: 50px;'>No model posteriors data available for program counts chart.</p>");
         container.select("#model-posteriors-stats").html("No model posteriors data available.");
-        console.log("[DEBUG] *** EARLY RETURN - NO POSTERIORS DATA ***");
+        debug("[DEBUG] *** EARLY RETURN - NO POSTERIORS DATA ***");
         return;
     }
 
-    console.log(`[DEBUG] Found ${programsWithPosteriors.length} programs with model posteriors data`);
+    debug(`[DEBUG] Found ${programsWithPosteriors.length} programs with model posteriors data`);
     
     // Debug: Log first few programs to understand data structure
     if (data.length > 0) {
-        console.log("[DEBUG] Total programs:", data.length);
-        console.log("[DEBUG] Sample program metadata structure:", data[0].metadata);
+        debug("[DEBUG] Total programs:", data.length);
+        debug("[DEBUG] Sample program metadata structure:", data[0].metadata);
         
         const programsWithLlmResult = data.filter(d => d.metadata && d.metadata.llm_result);
-        console.log(`[DEBUG] Programs with llm_result: ${programsWithLlmResult.length}`);
+        debug(`[DEBUG] Programs with llm_result: ${programsWithLlmResult.length}`);
         
         if (programsWithLlmResult.length > 0) {
-            console.log("[DEBUG] Sample llm_result:", programsWithLlmResult[0].metadata.llm_result);
-            console.log("[DEBUG] Sample llm_result keys:", Object.keys(programsWithLlmResult[0].metadata.llm_result));
+            debug("[DEBUG] Sample llm_result:", programsWithLlmResult[0].metadata.llm_result);
+            debug("[DEBUG] Sample llm_result keys:", Object.keys(programsWithLlmResult[0].metadata.llm_result));
             
             if (programsWithLlmResult[0].metadata.llm_result.model_posteriors) {
-                console.log("[DEBUG] Sample model_posteriors:", programsWithLlmResult[0].metadata.llm_result.model_posteriors);
-                console.log("[DEBUG] Model_posteriors type:", typeof programsWithLlmResult[0].metadata.llm_result.model_posteriors);
-                console.log("[DEBUG] Model_posteriors keys:", Object.keys(programsWithLlmResult[0].metadata.llm_result.model_posteriors));
+                debug("[DEBUG] Sample model_posteriors:", programsWithLlmResult[0].metadata.llm_result.model_posteriors);
+                debug("[DEBUG] Model_posteriors type:", typeof programsWithLlmResult[0].metadata.llm_result.model_posteriors);
+                debug("[DEBUG] Model_posteriors keys:", Object.keys(programsWithLlmResult[0].metadata.llm_result.model_posteriors));
             } else {
-                console.log("[DEBUG] No model_posteriors in llm_result");
+                debug("[DEBUG] No model_posteriors in llm_result");
             }
         }
         
@@ -122,11 +123,11 @@ export function createModelPosteriorsVisualization(data) {
             d.metadata.llm_result.model_posteriors && 
             typeof d.metadata.llm_result.model_posteriors === 'object'
         );
-        console.log(`[DEBUG] Programs with exact model_posteriors structure: ${exactMatch.length}`);
+        debug(`[DEBUG] Programs with exact model_posteriors structure: ${exactMatch.length}`);
         
         // Also check for alternative structures
         const altStructure1 = data.filter(d => d.metadata && d.metadata.model_posteriors);
-        console.log(`[DEBUG] Programs with direct metadata.model_posteriors: ${altStructure1.length}`);
+        debug(`[DEBUG] Programs with direct metadata.model_posteriors: ${altStructure1.length}`);
     }
 
     // Helper function to get model_posteriors from program data
@@ -148,8 +149,8 @@ export function createModelPosteriorsVisualization(data) {
     });
     const models = Array.from(allModels).sort();
     
-    console.log("[DEBUG] Found models:", models);
-    console.log("[DEBUG] Sample model posteriors from first program:", getModelPosteriors(programsWithPosteriors[0]));
+    debug("[DEBUG] Found models:", models);
+    debug("[DEBUG] Sample model posteriors from first program:", getModelPosteriors(programsWithPosteriors[0]));
 
     // Group data by generation
     const generationData = {};
@@ -191,10 +192,10 @@ export function createModelPosteriorsVisualization(data) {
                 
                 // Debug logging for first generation
                 if (gen === generations[0] && model === models[0]) {
-                    console.log("[DEBUG] Sample program metadata for count calculation:", genPrograms[0]?.metadata);
-                    console.log("[DEBUG] Looking for model:", model);
-                    console.log("[DEBUG] Found programs for", model, ":", programsGeneratedByModel.length);
-                    console.log("[DEBUG] Sample model names found:", genPrograms.slice(0, 3).map(p => ({
+                    debug("[DEBUG] Sample program metadata for count calculation:", genPrograms[0]?.metadata);
+                    debug("[DEBUG] Looking for model:", model);
+                    debug("[DEBUG] Found programs for", model, ":", programsGeneratedByModel.length);
+                    debug("[DEBUG] Sample model names found:", genPrograms.slice(0, 3).map(p => ({
                         model_name: p.metadata?.model_name,
                         llm_model: p.metadata?.llm_result?.model,
                         metadata_model: p.metadata?.model,
@@ -219,9 +220,9 @@ export function createModelPosteriorsVisualization(data) {
         });
     });
 
-    console.log("[DEBUG] Total chart data points:", chartData.length);
-    console.log("[DEBUG] Chart data sample:", chartData.slice(0, 5));
-    console.log("[DEBUG] Chart data count analysis:");
+    debug("[DEBUG] Total chart data points:", chartData.length);
+    debug("[DEBUG] Chart data sample:", chartData.slice(0, 5));
+    debug("[DEBUG] Chart data count analysis:");
     
     // Helper function to reduce number of ticks to prevent overlap when there are many generations
     const getReducedTicks = (generations, maxTicks = 10) => {
@@ -231,14 +232,14 @@ export function createModelPosteriorsVisualization(data) {
     };
     models.forEach(model => {
         const modelData = chartData.filter(d => d.model === model);
-        console.log(`[DEBUG] Model ${model}: ${modelData.length} generations, counts: ${modelData.map(d => d.count).join(', ')}`);
-        console.log(`[DEBUG] Model ${model}: total programs generated = ${modelData.reduce((sum, d) => sum + d.count, 0)}`);
+        debug(`[DEBUG] Model ${model}: ${modelData.length} generations, counts: ${modelData.map(d => d.count).join(', ')}`);
+        debug(`[DEBUG] Model ${model}: total programs generated = ${modelData.reduce((sum, d) => sum + d.count, 0)}`);
     });
     
     // Also debug the model_name distribution in the first generation
     if (generations.length > 0) {
         const firstGen = generationData[generations[0]];
-        console.log(`[DEBUG] First generation (${generations[0]}) model distribution:`);
+        debug(`[DEBUG] First generation (${generations[0]}) model distribution:`);
         const modelCounts = {};
         firstGen.forEach(p => {
             const modelName = p.metadata && p.metadata.model_name;
@@ -249,7 +250,7 @@ export function createModelPosteriorsVisualization(data) {
             }
         });
         Object.entries(modelCounts).forEach(([model, count]) => {
-            console.log(`[DEBUG] ${model}: ${count} programs`);
+            debug(`[DEBUG] ${model}: ${count} programs`);
         });
     }
 
@@ -353,30 +354,30 @@ export function createModelPosteriorsVisualization(data) {
 
     // Legend will be added to the counts chart instead (which appears first now)
 
-    console.log("[DEBUG] *** REACHED END OF FIRST CHART CREATION ***");
+    debug("[DEBUG] *** REACHED END OF FIRST CHART CREATION ***");
 
     // Create second chart: Program counts by model
-    console.log("[DEBUG] *** STARTING PROGRAM COUNTS CHART CREATION ***");
-    console.log("[DEBUG] Creating program counts chart");
-    console.log("[DEBUG] Chart data for counts:", chartData);
-    console.log("[DEBUG] Models for counts:", models);
+    debug("[DEBUG] *** STARTING PROGRAM COUNTS CHART CREATION ***");
+    debug("[DEBUG] Creating program counts chart");
+    debug("[DEBUG] Chart data for counts:", chartData);
+    debug("[DEBUG] Models for counts:", models);
     
     // Test: Add a simple test message to the container
-    console.log("[DEBUG] Setting test message in program counts chart");
+    debug("[DEBUG] Setting test message in program counts chart");
     const testResult = container.select("#model-program-counts-chart").html("<p style='color: red; font-size: 20px; text-align: center; margin-top: 50px;'>PROGRAM COUNTS CHART SECTION - DEBUGGING</p>");
-    console.log("[DEBUG] Test message set result:", testResult);
-    console.log("[DEBUG] Program counts container after test:", container.select("#model-program-counts-chart").node());
+    debug("[DEBUG] Test message set result:", testResult);
+    debug("[DEBUG] Program counts container after test:", container.select("#model-program-counts-chart").node());
     
     // Check if we have any count data
     const totalCounts = chartData.reduce((sum, d) => sum + d.count, 0);
-    console.log("[DEBUG] Total program counts across all data:", totalCounts);
+    debug("[DEBUG] Total program counts across all data:", totalCounts);
     
     // Clear previous chart and create cumulative program counts plot
-    console.log("[DEBUG] Creating cumulative program counts chart");
+    debug("[DEBUG] Creating cumulative program counts chart");
     container.select("#model-program-counts-chart").html("");
     
     // DEBUG: Let's look at the actual program data instead of chartData
-    console.log("[DEBUG] Sample programs from original data:", programsWithPosteriors.slice(0, 3).map(p => ({
+    debug("[DEBUG] Sample programs from original data:", programsWithPosteriors.slice(0, 3).map(p => ({
         generation: p.generation,
         model_name: p.metadata?.model_name,
         llm_model: p.metadata?.llm_result?.model,
@@ -401,15 +402,15 @@ export function createModelPosteriorsVisualization(data) {
             if (!actualGenerationCounts[gen][actualModel]) actualGenerationCounts[gen][actualModel] = 0;
             actualGenerationCounts[gen][actualModel]++;
         } else {
-            console.log("[DEBUG] No model found for program:", program.id);
+            debug("[DEBUG] No model found for program:", program.id);
         }
     });
     
-    console.log("[DEBUG] Actual generation counts:", actualGenerationCounts);
+    debug("[DEBUG] Actual generation counts:", actualGenerationCounts);
     
     // Get all generations that have actual program data
     const actualSortedGens = Object.keys(actualGenerationCounts).map(Number).sort((a, b) => a - b);
-    console.log("[DEBUG] Actual sorted generations:", actualSortedGens);
+    debug("[DEBUG] Actual sorted generations:", actualSortedGens);
     
     // Get all models that actually generated programs
     const actualModels = new Set();
@@ -417,7 +418,7 @@ export function createModelPosteriorsVisualization(data) {
         Object.keys(genData).forEach(model => actualModels.add(model));
     });
     const actualModelsArray = Array.from(actualModels).sort();
-    console.log("[DEBUG] Models that actually generated programs:", actualModelsArray);
+    debug("[DEBUG] Models that actually generated programs:", actualModelsArray);
     
     // Calculate cumulative counts for each ACTUAL model
     const cumulativeData = {};
@@ -435,10 +436,10 @@ export function createModelPosteriorsVisualization(data) {
             });
         });
         
-        console.log(`[DEBUG] Model ${model.split('/').pop()}: ${cumulativeData[model].length} data points, final cumulative: ${cumulativeCount}`);
+        debug(`[DEBUG] Model ${model.split('/').pop()}: ${cumulativeData[model].length} data points, final cumulative: ${cumulativeCount}`);
     });
     
-    console.log("[DEBUG] Cumulative data summary:", Object.keys(cumulativeData).map(model => ({
+    debug("[DEBUG] Cumulative data summary:", Object.keys(cumulativeData).map(model => ({
         model: model.split('/').pop(), // Short name
         points: cumulativeData[model].length,
         finalCount: cumulativeData[model][cumulativeData[model].length - 1]?.cumulativeCount || 0
@@ -470,7 +471,7 @@ export function createModelPosteriorsVisualization(data) {
         .domain([0, maxCumulativeCount])
         .range([countsHeight, 0]);
         
-    console.log("[DEBUG] Cumulative chart scales - X domain:", d3.extent(actualSortedGens), "Y domain:", [0, maxCumulativeCount]);
+    debug("[DEBUG] Cumulative chart scales - X domain:", d3.extent(actualSortedGens), "Y domain:", [0, maxCumulativeCount]);
 
     // Add axes for cumulative counts chart (styled like posteriors chart)
     // Use the same tick reduction logic for consistency
@@ -585,11 +586,11 @@ export function createModelPosteriorsVisualization(data) {
     actualModelsArray.forEach((model, modelIndex) => {
         const modelData = cumulativeData[model];
         if (!modelData || modelData.length === 0) {
-            console.log(`[DEBUG] Skipping ${model}: no data`);
+            debug(`[DEBUG] Skipping ${model}: no data`);
             return;
         }
 
-        console.log(`[DEBUG] Drawing line ${modelIndex + 1}/${models.length} for ${model.split('/').pop()}, data points:`, modelData.length, "color:", colorScale(model));
+        debug(`[DEBUG] Drawing line ${modelIndex + 1}/${models.length} for ${model.split('/').pop()}, data points:`, modelData.length, "color:", colorScale(model));
 
         // Filter out any invalid data points
         const validData = modelData.filter(d => 
@@ -597,7 +598,7 @@ export function createModelPosteriorsVisualization(data) {
             !isNaN(d.generation) && !isNaN(d.cumulativeCount)
         );
         
-        console.log(`[DEBUG] Valid data points for ${model.split('/').pop()}:`, validData.length);
+        debug(`[DEBUG] Valid data points for ${model.split('/').pop()}:`, validData.length);
         
         if (validData.length === 0) return;
 
@@ -620,10 +621,10 @@ export function createModelPosteriorsVisualization(data) {
             .attr("r", 4)
             .attr("fill", colorScale(model));
         
-        console.log(`[DEBUG] Path created for ${model.split('/').pop()}, path element:`, path.node());
+        debug(`[DEBUG] Path created for ${model.split('/').pop()}, path element:`, path.node());
     });
     // No legend for the program counts chart (legend only on posteriors chart)
-    console.log("[DEBUG] *** CUMULATIVE PROGRAM COUNTS CHART COMPLETED ***");
+    debug("[DEBUG] *** CUMULATIVE PROGRAM COUNTS CHART COMPLETED ***");
     // Update summary statistics
     const statsContainer = container.select("#model-posteriors-stats");
     statsContainer.html("");
@@ -775,5 +776,5 @@ export function createModelPosteriorsVisualization(data) {
     
     renderRows();
 
-    console.log("[DEBUG] Model posteriors visualization created successfully");
+    debug("[DEBUG] Model posteriors visualization created successfully");
 }

@@ -1,16 +1,17 @@
 // Tree tab: D3 genealogy rendering.
+import { debug } from '../log.js';
 import { computeDataHash, lastRenderedDataHash, loadDatabase, normalizeTreeRoots, setLastRenderedDataHash } from './loader.js';
 import { displayNodeDetails } from './nodeDetails.js';
 import { escapeHtml, formatScore, isFailedProposalNode } from './format.js';
 
 export function renderGraph(data, forceRender = false) {
-    console.log("[DEBUG] Starting graph rendering with D3 tree layout");
+    debug("[DEBUG] Starting graph rendering with D3 tree layout");
 
     try {
         // Skip render if data hasn't changed (unless forced)
         const currentHash = computeDataHash(data);
         if (!forceRender && currentHash === lastRenderedDataHash && document.querySelector("#tree svg")) {
-            console.log("[DEBUG] Skipping render - data unchanged");
+            debug("[DEBUG] Skipping render - data unchanged");
             return;
         }
         setLastRenderedDataHash(currentHash);
@@ -79,7 +80,7 @@ export function renderGraph(data, forceRender = false) {
                 return d;
             });
             
-            console.log(`[DEBUG] Created unified root for ${gen0Programs.length} generation 0 programs`);
+            debug(`[DEBUG] Created unified root for ${gen0Programs.length} generation 0 programs`);
         }
         
         const nodes = processedData.map(d => ({...d, agent_name: d.metadata.patch_name || d.agent_name || "unnamed_agent"}));
@@ -147,21 +148,21 @@ export function renderGraph(data, forceRender = false) {
                                  d.combined_score !== undefined && 
                                  !isNaN(d.combined_score);
             if (hasValidScore && !isCorrect) {
-                console.log("[DEBUG] Excluding incorrect node:", d.id.substring(0, 8), "correct:", d.correct, "score:", d.combined_score);
+                debug("[DEBUG] Excluding incorrect node:", d.id.substring(0, 8), "correct:", d.correct, "score:", d.combined_score);
             }
             return isCorrect && hasValidScore;
         });
-        console.log("[DEBUG] Total correct valid nodes for scoring:", correctValidNodes.length);
+        debug("[DEBUG] Total correct valid nodes for scoring:", correctValidNodes.length);
         
         // Debug: show some examples of correct vs incorrect nodes
         const allValidNodes = nodes.filter(d => d.combined_score !== null && d.combined_score !== undefined && !isNaN(d.combined_score));
         const incorrectNodes = allValidNodes.filter(d => !(d.correct === true || d.correct === 'true' || d.correct === 1));
-        console.log("[DEBUG] Total valid nodes:", allValidNodes.length, "Incorrect nodes:", incorrectNodes.length);
+        debug("[DEBUG] Total valid nodes:", allValidNodes.length, "Incorrect nodes:", incorrectNodes.length);
         if (incorrectNodes.length > 0) {
-            console.log("[DEBUG] Sample incorrect nodes:", incorrectNodes.slice(0, 3).map(d => ({id: d.id.substring(0, 8), correct: d.correct, score: d.combined_score})));
+            debug("[DEBUG] Sample incorrect nodes:", incorrectNodes.slice(0, 3).map(d => ({id: d.id.substring(0, 8), correct: d.correct, score: d.combined_score})));
         }
         if (correctValidNodes.length > 0) {
-            console.log("[DEBUG] Sample correct nodes:", correctValidNodes.slice(0, 3).map(d => ({id: d.id.substring(0, 8), correct: d.correct, score: d.combined_score})));
+            debug("[DEBUG] Sample correct nodes:", correctValidNodes.slice(0, 3).map(d => ({id: d.id.substring(0, 8), correct: d.correct, score: d.combined_score})));
         }
         
         // Fallback to evaluated incorrect nodes before using failed proposals
@@ -182,18 +183,18 @@ export function renderGraph(data, forceRender = false) {
         
         // Find the highest score among the selected nodes
         const actualBestScore = Math.max(...scoringNodes.map(d => d.combined_score));
-        console.log("[DEBUG] Actual best score found:", actualBestScore);
+        debug("[DEBUG] Actual best score found:", actualBestScore);
         
         // Use a more robust epsilon for floating-point comparison
         const epsilon = Math.max(1e-6, Math.abs(actualBestScore) * 1e-10);
-        console.log("[DEBUG] Using epsilon:", epsilon);
+        debug("[DEBUG] Using epsilon:", epsilon);
         
         // Find all nodes with the best score (from the correct scoring nodes)
         const allNodesWithBestScore = scoringNodes.filter(d => {
             const scoreDiff = Math.abs(d.combined_score - actualBestScore);
             const isEqual = scoreDiff < epsilon;
             if (isEqual) {
-                console.log("[DEBUG] Found node with best score:", d.id.substring(0, 8), "score:", d.combined_score, "correct:", d.correct, "diff:", scoreDiff);
+                debug("[DEBUG] Found node with best score:", d.id.substring(0, 8), "score:", d.combined_score, "correct:", d.correct, "diff:", scoreDiff);
             }
             return isEqual;
         });
@@ -202,7 +203,7 @@ export function renderGraph(data, forceRender = false) {
         const correctNodesWithBestScore = allNodesWithBestScore.filter(d => {
             const isCorrect = d.correct === true || d.correct === 'true' || d.correct === 1;
             if (!isCorrect) {
-                console.log("[DEBUG] EXCLUDING incorrect node from best score paths:", d.id.substring(0, 8), "correct:", d.correct, "score:", d.combined_score);
+                debug("[DEBUG] EXCLUDING incorrect node from best score paths:", d.id.substring(0, 8), "correct:", d.correct, "score:", d.combined_score);
             }
             return isCorrect;
         });
@@ -214,7 +215,7 @@ export function renderGraph(data, forceRender = false) {
         if (correctNodesWithBestScore.length > 0) {
             // Use the best correct node
             nodesWithBestScore = [correctNodesWithBestScore[0]];
-            console.log("[DEBUG] SINGLE PATH MODE: Using best correct node:", nodesWithBestScore[0].id.substring(0, 8));
+            debug("[DEBUG] SINGLE PATH MODE: Using best correct node:", nodesWithBestScore[0].id.substring(0, 8));
         } else if (allNodesWithBestScore.length > 0) {
             // No correct nodes - fallback to best incorrect node for visualization
             nodesWithBestScore = [allNodesWithBestScore[0]];
@@ -241,7 +242,7 @@ export function renderGraph(data, forceRender = false) {
             if (usingFallbackNode) {
                 console.warn("[DEBUG] Using fallback (incorrect) node:", bestNode.id.substring(0, 8), "score:", bestNode.combined_score, "correct:", bestNode.correct);
             } else {
-                console.log("[DEBUG] Using best correct node:", bestNode.id.substring(0, 8), "score:", bestNode.combined_score, "correct:", bestNode.correct);
+                debug("[DEBUG] Using best correct node:", bestNode.id.substring(0, 8), "score:", bestNode.combined_score, "correct:", bestNode.correct);
             }
         
             window.bestNodeId = bestNode.id;
@@ -271,12 +272,12 @@ export function renderGraph(data, forceRender = false) {
             });
             
             if (bestNodeDataIsCorrect) {
-                console.log("[DEBUG] Populated ancestorIds for correct best node:", window.bestNodeId.substring(0, 8), "path length:", ancestorIds.size);
+                debug("[DEBUG] Populated ancestorIds for correct best node:", window.bestNodeId.substring(0, 8), "path length:", ancestorIds.size);
             } else {
                 console.warn("[DEBUG] Populated ancestorIds for FALLBACK (incorrect) node:", window.bestNodeId.substring(0, 8), "path length:", ancestorIds.size);
             }
         } else {
-            console.log("[DEBUG] No ancestorIds populated - no valid best node found");
+            debug("[DEBUG] No ancestorIds populated - no valid best node found");
         }
         
         // Store all best paths for highlighting - FORCE SINGLE PATH
@@ -286,7 +287,7 @@ export function renderGraph(data, forceRender = false) {
         // SINGLE PATH MODE: Only process the first (and only) node
         if (nodesWithBestScore.length > 0) {
             const singleBestNode = nodesWithBestScore[0];
-            console.log("[DEBUG] SINGLE PATH: Processing only one node:", singleBestNode.id.substring(0, 8));
+            debug("[DEBUG] SINGLE PATH: Processing only one node:", singleBestNode.id.substring(0, 8));
         
             // Process only the single best node
             [singleBestNode].forEach((node, index) => {
@@ -312,7 +313,7 @@ export function renderGraph(data, forceRender = false) {
                     pathIds.add(ancestor.data.id);
                 });
                 
-                console.log("[DEBUG] Path", index + 1, "- Node:", node.id.substring(0, 8), 
+                debug("[DEBUG] Path", index + 1, "- Node:", node.id.substring(0, 8), 
                            "Path length:", pathIds.size, "Score:", node.combined_score, "Generation:", node.generation);
                 
                 window.allBestPaths.push({
@@ -343,7 +344,7 @@ export function renderGraph(data, forceRender = false) {
                 }
                 
                 if (pathIds.size > 1) {
-                    console.log("[DEBUG] Reconstructed path", index + 1, "- Node:", node.id.substring(0, 8), 
+                    debug("[DEBUG] Reconstructed path", index + 1, "- Node:", node.id.substring(0, 8), 
                                "Path length:", pathIds.size, "Score:", node.combined_score);
                     
                     window.allBestPaths.push({
@@ -358,26 +359,26 @@ export function renderGraph(data, forceRender = false) {
             }
             });
         } else {
-            console.log("[DEBUG] SINGLE PATH: No valid best node found");
+            debug("[DEBUG] SINGLE PATH: No valid best node found");
         }
         
-        console.log("[DEBUG] SINGLE PATH: Successfully found", foundNodesCount, "path(s)");
+        debug("[DEBUG] SINGLE PATH: Successfully found", foundNodesCount, "path(s)");
         
         // FORCE SINGLE PATH: Truncate to only the first path if multiple exist
         if (window.allBestPaths.length > 1) {
-            console.log("[DEBUG] FORCE TRUNCATING to single path from", window.allBestPaths.length, "paths");
+            debug("[DEBUG] FORCE TRUNCATING to single path from", window.allBestPaths.length, "paths");
             window.allBestPaths = [window.allBestPaths[0]];
         }
         
         // FORCE SINGLE NODE: Ensure bestScoreNodes only has one node
         if (window.bestScoreNodes.length > 1) {
-            console.log("[DEBUG] FORCE TRUNCATING bestScoreNodes to single node from", window.bestScoreNodes.length, "nodes");
+            debug("[DEBUG] FORCE TRUNCATING bestScoreNodes to single node from", window.bestScoreNodes.length, "nodes");
             window.bestScoreNodes = [window.bestScoreNodes[0]];
         }
         
         // Summary for debugging - SINGLE PATH MODE
         if (window.allBestPaths.length === 1) {
-            console.log("[DEBUG] SINGLE PATH MODE: One path found to:", window.allBestPaths[0].nodeId.substring(0, 8), "Score:", window.allBestPaths[0].score);
+            debug("[DEBUG] SINGLE PATH MODE: One path found to:", window.allBestPaths[0].nodeId.substring(0, 8), "Score:", window.allBestPaths[0].score);
         } else {
             console.warn("[DEBUG] SINGLE PATH MODE: No paths found");
         }
@@ -452,7 +453,7 @@ export function renderGraph(data, forceRender = false) {
                         if (sourceCorrect && targetCorrect) {
                             return '#ff8c00'; // Always use orange for the single path
                         } else {
-                            console.log("[DEBUG] Blocking orange highlight for link with incorrect node(s):", d.source.data.id.substring(0, 8), "->", d.target.data.id.substring(0, 8));
+                            debug("[DEBUG] Blocking orange highlight for link with incorrect node(s):", d.source.data.id.substring(0, 8), "->", d.target.data.id.substring(0, 8));
                             return "#999";
                         }
                     }
@@ -670,7 +671,7 @@ export function renderGraph(data, forceRender = false) {
                         if (nodeCorrect) {
                             return '#ff8c00'; // Always use orange for the single path
                         } else {
-                            console.log("[DEBUG] Blocking orange highlight for incorrect node:", d.data.id.substring(0, 8), "correct:", d.data.correct);
+                            debug("[DEBUG] Blocking orange highlight for incorrect node:", d.data.id.substring(0, 8), "correct:", d.data.correct);
                             return "#000";
                         }
                     }
@@ -772,7 +773,7 @@ export function renderGraph(data, forceRender = false) {
                 if (d.depth > maxDepth) maxDepth = d.depth;
             });
             
-            console.log("[DEBUG] Starting tree animation, max depth:", maxDepth);
+            debug("[DEBUG] Starting tree animation, max depth:", maxDepth);
             
             // Animation settings - dynamic delay based on tree depth
             // Target total animation time of ~4-5 seconds for the tree reveal
@@ -783,13 +784,13 @@ export function renderGraph(data, forceRender = false) {
             const transitionDuration = Math.min(500, depthDelay * 0.8); // fade-in scales with delay
             const pauseBeforeRestart = 1500; // ms pause before restarting loop
             
-            console.log("[DEBUG] Animation timing - depthDelay:", depthDelay.toFixed(0), "ms, transitionDuration:", transitionDuration.toFixed(0), "ms");
+            debug("[DEBUG] Animation timing - depthDelay:", depthDelay.toFixed(0), "ms, transitionDuration:", transitionDuration.toFixed(0), "ms");
             
             // Function to run one animation cycle
             function runAnimationCycle() {
                 // Check if animation should still run
                 if (!animateCheckbox.checked) {
-                    console.log("[DEBUG] Animation stopped (checkbox unchecked)");
+                    debug("[DEBUG] Animation stopped (checkbox unchecked)");
                     return;
                 }
                 
@@ -839,7 +840,7 @@ export function renderGraph(data, forceRender = false) {
                 // Schedule next cycle after this one completes
                 const restartTimer = setTimeout(() => {
                     if (animateCheckbox.checked) {
-                        console.log("[DEBUG] Restarting animation cycle");
+                        debug("[DEBUG] Restarting animation cycle");
                         runAnimationCycle();
                     }
                 }, (maxDepth + 1) * depthDelay + transitionDuration + pauseBeforeRestart);
@@ -861,7 +862,7 @@ export function renderGraph(data, forceRender = false) {
                     .node();
                 
                 if (nodeElement) {
-                    console.log('[DEBUG] Applying pending node selection:', nodeIdToSelect);
+                    debug('[DEBUG] Applying pending node selection:', nodeIdToSelect);
                     nodeElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                 } else {
                     console.warn('[DEBUG] Could not find node for pending selection:', nodeIdToSelect);
@@ -980,11 +981,11 @@ function updateShapeLegend(shapeMap, usedPatchTypes, usedIslands = [], islandCol
 
 // Add window resize event listener to redraw the tree
 window.addEventListener('resize', function() {
-    console.log("[DEBUG] Window resized");
+    debug("[DEBUG] Window resized");
     
     // Skip reload during manual panel resizing
     if (window.isResizing) {
-        console.log("[DEBUG] Skipping window resize handler during panel resize");
+        debug("[DEBUG] Skipping window resize handler during panel resize");
         return;
     }
     
@@ -1008,7 +1009,7 @@ window.addEventListener('resize', function() {
 
 // Add specific panel resize handling to redraw the tree when panels are resized
 const observer = new ResizeObserver(() => {
-    console.log("[DEBUG] Panel resized");
+    debug("[DEBUG] Panel resized");
 
     if (window.isResizing) {
         return;

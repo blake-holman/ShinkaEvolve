@@ -51,7 +51,7 @@ def test_embeddings_heatmap_refetches_when_cached_full_data_is_stale():
         "if (cachedFullData && fullProgramDataCoversEmbeddingHydration(window.treeData, cachedFullData))"
         in html
     )
-    assert "console.log(\"[DEBUG] Cached full embedding data is stale, refetching\")" in html
+    assert "debug(\"[DEBUG] Cached full embedding data is stale, refetching\")" in html
 
 
 def test_runtime_timeline_dedupes_source_jobs_and_deprioritizes_island_copies():

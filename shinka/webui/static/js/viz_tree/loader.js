@@ -1,4 +1,5 @@
 // Fetching a database and preparing tree data.
+import { debug } from '../log.js';
 import { loadAvailableMetaFiles } from './scratchpad.js';
 import { lastDataTimestamp, setLastDataTimestamp, startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 import { renderGraph } from './tree.js';
@@ -36,16 +37,16 @@ export async function loadDatabaseSilent(dbPath) {
             try {
                 prompts = await promptResponse.json();
             } catch (e) {
-                console.log("[DEBUG] Silent refresh: Failed to parse prompts JSON:", e);
+                debug("[DEBUG] Silent refresh: Failed to parse prompts JSON:", e);
             }
         }
         
         if (!data || data.length === 0) {
-            console.log("[DEBUG] Auto-refresh: No new data received");
+            debug("[DEBUG] Auto-refresh: No new data received");
             return;
         }
         
-        console.log("[DEBUG] Auto-refresh: Processing", data.length, "programs,", prompts.length, "prompts");
+        debug("[DEBUG] Auto-refresh: Processing", data.length, "programs,", prompts.length, "prompts");
         window.rawDbData = data;
         if (prompts.length > 0) {
             window.metaPromptData = prompts;
@@ -100,12 +101,12 @@ export async function loadDatabaseSilent(dbPath) {
         
         // Also refresh the meta-prompt tree if it's visible or has been loaded
         if (window.metaPromptData !== null) {
-            console.log("[DEBUG] Auto-refresh: Also refreshing meta-prompt tree");
+            debug("[DEBUG] Auto-refresh: Also refreshing meta-prompt tree");
             await refreshMetaPromptssilent();
         }
         
     } catch (error) {
-        console.log("[DEBUG] Auto-refresh: Failed to load data silently:", error);
+        debug("[DEBUG] Auto-refresh: Failed to load data silently:", error);
     } finally {
         window.isReloadingData = false;
     }
@@ -118,7 +119,7 @@ async function refreshMetaPromptssilent() {
     try {
         const response = await fetch(`/get_system_prompts?db_path=${encodeURIComponent(window.currentDbPath)}`);
         if (!response.ok) {
-            console.log("[DEBUG] Auto-refresh: Failed to load prompts");
+            debug("[DEBUG] Auto-refresh: Failed to load prompts");
             return;
         }
         
@@ -142,10 +143,10 @@ async function refreshMetaPromptssilent() {
         let hasChanged = false;
         if (prompts.length !== oldCount) {
             hasChanged = true;
-            console.log("[DEBUG] Auto-refresh: Prompt count changed:", oldCount, "->", prompts.length);
+            debug("[DEBUG] Auto-refresh: Prompt count changed:", oldCount, "->", prompts.length);
         } else if (newBestId !== oldBestId) {
             hasChanged = true;
-            console.log("[DEBUG] Auto-refresh: Best prompt changed:", oldBestId?.substring(0, 8), "->", newBestId?.substring(0, 8));
+            debug("[DEBUG] Auto-refresh: Best prompt changed:", oldBestId?.substring(0, 8), "->", newBestId?.substring(0, 8));
         } else {
             // Also check if any fitness values changed significantly
             const oldTotalFitness = window.metaPromptData ? 
@@ -153,7 +154,7 @@ async function refreshMetaPromptssilent() {
             const newTotalFitness = prompts.reduce((sum, p) => sum + (p.fitness || 0), 0);
             if (Math.abs(oldTotalFitness - newTotalFitness) > 0.0001) {
                 hasChanged = true;
-                console.log("[DEBUG] Auto-refresh: Total fitness changed:", oldTotalFitness.toFixed(4), "->", newTotalFitness.toFixed(4));
+                debug("[DEBUG] Auto-refresh: Total fitness changed:", oldTotalFitness.toFixed(4), "->", newTotalFitness.toFixed(4));
             }
         }
         
@@ -161,7 +162,7 @@ async function refreshMetaPromptssilent() {
             return; // No significant change
         }
         
-        console.log("[DEBUG] Auto-refresh: Meta-prompt data changed, updating tree");
+        debug("[DEBUG] Auto-refresh: Meta-prompt data changed, updating tree");
         window.metaPromptData = prompts;
         window.metaPromptBestId = newBestId;  // Track best prompt ID
         
@@ -194,13 +195,13 @@ async function refreshMetaPromptssilent() {
         }
         
     } catch (error) {
-        console.log("[DEBUG] Auto-refresh: Error refreshing meta-prompts:", error);
+        debug("[DEBUG] Auto-refresh: Error refreshing meta-prompts:", error);
     }
 }
 
 // Function to load and process data from a database file
 export function loadDatabase(dbPath) {
-    console.log("[DEBUG] Attempting to load DB from:", dbPath);
+    debug("[DEBUG] Attempting to load DB from:", dbPath);
 
     document.getElementById("node-summary").innerHTML = "";
     d3.selectAll('.node').classed('selected', false);
@@ -255,7 +256,7 @@ export function loadDatabase(dbPath) {
     window.currentDbPath = dbPath;
     
     if (window.isResizing) {
-        console.log("[DEBUG] Skipping DB loading during resize");
+        debug("[DEBUG] Skipping DB loading during resize");
         return;
     }
     
@@ -271,20 +272,20 @@ export function loadDatabase(dbPath) {
         }),
         fetch(`/get_system_prompts?db_path=${encodeURIComponent(dbPath)}`).then(r => {
             if (!r.ok) {
-                console.log("[DEBUG] Prompts request failed (HTTP " + r.status + "), continuing without prompts");
+                debug("[DEBUG] Prompts request failed (HTTP " + r.status + "), continuing without prompts");
                 return [];
             }
             return r.json().catch(e => {
-                console.log("[DEBUG] Failed to parse prompts JSON:", e);
+                debug("[DEBUG] Failed to parse prompts JSON:", e);
                 return [];
             });
         }).catch(e => {
-            console.log("[DEBUG] Prompts fetch failed:", e);
+            debug("[DEBUG] Prompts fetch failed:", e);
             return [];
         }) // If prompts fail, continue with empty array
     ])
         .then(([data, prompts]) => {
-            console.log("[DEBUG] Summary data received:", data.length, "programs,", prompts.length, "prompts");
+            debug("[DEBUG] Summary data received:", data.length, "programs,", prompts.length, "prompts");
             
             if (!data || data.length === 0) {
                 throw new Error("Database contains no programs.");
@@ -337,7 +338,7 @@ export function loadDatabase(dbPath) {
                 `;
                 
                 // Don't stop auto-refresh for concurrent access - it might resolve
-                console.log("[DEBUG] Database busy, keeping auto-refresh active");
+                debug("[DEBUG] Database busy, keeping auto-refresh active");
             } else {
                 scanStatus.textContent = "Error loading data.";
                 scanStatus.style.color = '#dc3545'; // Error red
@@ -358,7 +359,7 @@ export function loadDatabase(dbPath) {
         })
         .finally(() => {
             window.isReloadingData = false; // Re-enable state saving
-            console.log("[DEBUG] Data reloading finished.");
+            debug("[DEBUG] Data reloading finished.");
         });
 }
 
@@ -370,7 +371,7 @@ export function processData(data) {
         return;
     }
     
-    console.log("[DEBUG] Processing data:", data.length, "rows");
+    debug("[DEBUG] Processing data:", data.length, "rows");
     try {
         // Determine the active tabs *before* doing anything else
         const activeLeftTab = document.querySelector('.left-tab.active');

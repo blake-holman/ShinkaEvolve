@@ -1,4 +1,5 @@
 // Node, Code, Eval, and LLM tabs for the selected program.
+import { debug } from '../log.js';
 import { formatTimestamp } from './databases.js';
 import { createCharts } from './metaInfo.js';
 import { displayCurrentDiff } from './diffView.js';
@@ -43,7 +44,7 @@ function displayCodeContent(data, codeWrapper) {
 
 // Display node details in the right panel
 export function displayNodeDetails(data) {
-    console.log("[DEBUG] Displaying node details for:", data.agent_name, "Gen:", data.generation, "ID:", data.id);
+    debug("[DEBUG] Displaying node details for:", data.agent_name, "Gen:", data.generation, "ID:", data.id);
     
     // Store selected node ID globally
     window.selectedNodeId = data.id;
@@ -585,7 +586,7 @@ async function fetchAndDisplayPlots(generation, programId) {
         const response = await fetch(url);
         
         if (!response.ok) {
-            console.log('[DEBUG] No plots available for this program');
+            debug('[DEBUG] No plots available for this program');
             return;
         }
         
@@ -683,9 +684,9 @@ async function fetchAndDisplayPlots(generation, programId) {
             }
         });
         
-        console.log(`[DEBUG] Loading ${plots.length} plot(s)`);
+        debug(`[DEBUG] Loading ${plots.length} plot(s)`);
         
     } catch (error) {
-        console.log('[DEBUG] Error fetching plots:', error);
+        debug('[DEBUG] Error fetching plots:', error);
     }
 }

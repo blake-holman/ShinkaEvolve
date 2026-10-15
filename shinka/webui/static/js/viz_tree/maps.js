@@ -1,4 +1,5 @@
 // MAPs tab: MAP-Elites style grids.
+import { debug } from '../log.js';
 import { formatScore } from './format.js';
 import { selectNodeById } from './selection.js';
 import { getNestedValue } from './pareto.js';
@@ -83,12 +84,12 @@ function getMAPsAvailableMetrics(data) {
 }
 
 export function createMAPsVisualization(data) {
-    console.log("[DEBUG] Creating MAPs visualization");
+    debug("[DEBUG] Creating MAPs visualization");
     
     // Check if the MAPs tab is visible
     const mapsView = document.getElementById('maps-view');
     if (!mapsView || !mapsView.classList.contains('active')) {
-        console.log("[DEBUG] MAPs view not active, skipping visualization creation");
+        debug("[DEBUG] MAPs view not active, skipping visualization creation");
         return;
     }
 
@@ -439,5 +440,5 @@ export function createMAPsVisualization(data) {
         .style("font-size", "11px")
         .text("Combined Score");
 
-    console.log(`[DEBUG] MAPs visualization created with ${cellMap.size} cells`);
+    debug(`[DEBUG] MAPs visualization created with ${cellMap.size} cells`);
 }

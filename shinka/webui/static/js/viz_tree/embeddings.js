@@ -1,4 +1,5 @@
 // Embed tab: similarity heatmaps.
+import { debug } from '../log.js';
 import { formatScore } from './format.js';
 import { updateDetailsForNode } from './selection.js';
 import { savePreferences } from './state.js';
@@ -138,7 +139,7 @@ function datasetHasHydratedEmbeddingFields(data) {
 }
 
 function createEmbeddingsHeatmap(data) {
-    console.log("[DEBUG] Creating embeddings heatmap");
+    debug("[DEBUG] Creating embeddings heatmap");
     
     // Add validation checks
     if (!data || !Array.isArray(data) || data.length === 0) {
@@ -153,7 +154,7 @@ function createEmbeddingsHeatmap(data) {
     // Check if the embeddings tab is visible
     const embeddingsView = document.getElementById('embeddings-view');
     if (!embeddingsView || !embeddingsView.classList.contains('active')) {
-        console.log("[DEBUG] Embeddings view not active, skipping heatmap creation");
+        debug("[DEBUG] Embeddings view not active, skipping heatmap creation");
         return;
     }
     
@@ -162,7 +163,7 @@ function createEmbeddingsHeatmap(data) {
     
     const filteredData = filterEmbeddingHeatmapData(data);
     if (filteredData.length !== data.length) {
-        console.log(
+        debug(
             `[DEBUG] Embeddings: Filtered out ${data.length - filteredData.length} duplicate generation 0 programs`
         );
     }
@@ -198,7 +199,7 @@ function createEmbeddingsHeatmap(data) {
         bestEmbedNodeId = bestEmbedNode.id;
     }
     
-    console.log(`[DEBUG] Found ${dataWithEmbeddings.length} programs with embeddings`);
+    debug(`[DEBUG] Found ${dataWithEmbeddings.length} programs with embeddings`);
     
     // Create main container div
     const mainContainer = d3.select("#embeddings-heatmap")
@@ -363,7 +364,7 @@ function createSingleEmbeddingHeatmap(dataWithEmbeddings, container, title, best
             heatMinInput.value = actualMinSim.toFixed(3);
             heatMaxInput.value = actualMaxSim.toFixed(3);
             window.lastEmbeddingsDbPath = currentDbPath;
-            console.log(`[DEBUG] Auto-set similarity range for new database: ${actualMinSim.toFixed(3)} - ${actualMaxSim.toFixed(3)}`);
+            debug(`[DEBUG] Auto-set similarity range for new database: ${actualMinSim.toFixed(3)} - ${actualMaxSim.toFixed(3)}`);
             
             // Save the new preferences
             savePreferences();
@@ -380,7 +381,7 @@ function createSingleEmbeddingHeatmap(dataWithEmbeddings, container, title, best
     
     if (sortMethod === 'cluster' && dataWithEmbeddings.length > 1) {
         ordering = hierarchicalClustering(similarityMatrix);
-        console.log(`[DEBUG] Applied hierarchical clustering ${isSubplot ? 'to subplot' : 'to main plot'}`);
+        debug(`[DEBUG] Applied hierarchical clustering ${isSubplot ? 'to subplot' : 'to main plot'}`);
     } else if (sortMethod === 'performance') {
         const indexedPrograms = dataWithEmbeddings.map((p, i) => ({...p, originalIndex: i}));
 
@@ -391,10 +392,10 @@ function createSingleEmbeddingHeatmap(dataWithEmbeddings, container, title, best
         });
 
         ordering = indexedPrograms.map(p => p.originalIndex);
-        console.log(`[DEBUG] Sorted by performance ${isSubplot ? 'for subplot' : 'for main plot'}`);
+        debug(`[DEBUG] Sorted by performance ${isSubplot ? 'for subplot' : 'for main plot'}`);
     } else if (sortMethod === 'chronological') {
         // The default ordering is chronological because dataWithEmbeddings preserves the order from the original data
-        console.log(`[DEBUG] Sorted chronologically ${isSubplot ? 'for subplot' : 'for main plot'}`);
+        debug(`[DEBUG] Sorted chronologically ${isSubplot ? 'for subplot' : 'for main plot'}`);
     }
     
     // Reorder data according to ordering
@@ -786,14 +787,14 @@ export function ensureEmbeddingsHeatmap() {
     
     const existingHeatmap = heatmapContainer.querySelector('svg');
     if (existingHeatmap && datasetHasHydratedEmbeddingFields(window.treeData)) {
-        console.log("[DEBUG] Embeddings heatmap already exists");
+        debug("[DEBUG] Embeddings heatmap already exists");
         return;
     }
     
     // If we have data but no heatmap, create it
     if (window.treeData && window.treeData.length > 0) {
         if (datasetHasHydratedEmbeddingFields(window.treeData)) {
-            console.log("[DEBUG] Creating embeddings heatmap with existing data");
+            debug("[DEBUG] Creating embeddings heatmap with existing data");
             createEmbeddingsHeatmap(window.treeData);
         } else if (window.currentDbPath) {
             window.fullProgramDataByDb = window.fullProgramDataByDb || {};
@@ -813,7 +814,7 @@ export function ensureEmbeddingsHeatmap() {
             }
 
             if (cachedFullData) {
-                console.log("[DEBUG] Cached full embedding data is stale, refetching");
+                debug("[DEBUG] Cached full embedding data is stale, refetching");
             }
 
             if (window.loadingFullEmbeddings) {
@@ -821,7 +822,7 @@ export function ensureEmbeddingsHeatmap() {
                 return;
             }
 
-            console.log("[DEBUG] Fetching full data with embeddings for heatmap");
+            debug("[DEBUG] Fetching full data with embeddings for heatmap");
             heatmapContainer.innerHTML = '<div style="text-align: center; color: #666; margin-top: 50px;">Loading embedding data...</div>';
             window.loadingFullEmbeddings = true;
             
@@ -835,7 +836,7 @@ export function ensureEmbeddingsHeatmap() {
                     window.treeData = mergeFullProgramData(window.treeData, fullData);
                     window.rawDbData = mergeFullProgramData(window.rawDbData, fullData);
                     window.loadingFullEmbeddings = false;
-                    console.log("[DEBUG] Embeddings loaded, creating heatmap");
+                    debug("[DEBUG] Embeddings loaded, creating heatmap");
                     createEmbeddingsHeatmap(window.treeData);
                 })
                 .catch(err => {

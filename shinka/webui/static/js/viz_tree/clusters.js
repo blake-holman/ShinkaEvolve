@@ -1,14 +1,15 @@
 // Clusters tab: PCA scatter plots.
+import { debug } from '../log.js';
 import { formatScore } from './format.js';
 import { selectNodeById } from './selection.js';
 
 export function createClusterPlots(data) {
-    console.log("[DEBUG] Creating cluster plots");
+    debug("[DEBUG] Creating cluster plots");
     
     // Check if the clusters tab is visible
     const clustersView = document.getElementById('clusters-view');
     if (!clustersView || !clustersView.classList.contains('active')) {
-        console.log("[DEBUG] Clusters view not active, skipping visualization creation");
+        debug("[DEBUG] Clusters view not active, skipping visualization creation");
         return;
     }
     

@@ -1,4 +1,5 @@
 // Entry point: wires tabs, buttons, and page-level listeners, then loads the selected database.
+import { debug } from '../log.js';
 import { initializeMetaAnalysis } from './scratchpad.js';
 import { initializeResizer } from './layout.js';
 import { findDatabases, populateResultSelect, tasksAndResults } from './databases.js';
@@ -56,18 +57,18 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
     return false;
 };
 
-console.log("Script starting...");
+debug("Script starting...");
 
 try {
     // ALWAYS use DOMContentLoaded to ensure the full initial DOM is ready
-    console.log("Adding DOMContentLoaded listener...");
+    debug("Adding DOMContentLoaded listener...");
     document.addEventListener('DOMContentLoaded', initialize);
 } catch (error) {
     console.error("Error in initial script setup:", error);
 }
 
 function initialize() {
-    console.log("[DEBUG] Page loaded, starting initialization");
+    debug("[DEBUG] Page loaded, starting initialization");
     try {
         // Add custom styles
                 window.pendingNodeSelectionId = null;
@@ -125,17 +126,17 @@ function initialize() {
         // Add refresh button handler
         const refreshButton = document.getElementById('refresh-files');
         refreshButton.addEventListener('click', function() {
-            console.log("[DEBUG] Refresh button clicked");
+            debug("[DEBUG] Refresh button clicked");
             findDatabases(true); // Force refresh of DB list
         });
         
         // Initialize the reload data button handler
         const reloadButton = document.getElementById('reload-data');
         reloadButton.addEventListener('click', function() {
-            console.log("[DEBUG] Reload data button clicked");
+            debug("[DEBUG] Reload data button clicked");
             if (window.currentDbPath) {
                 window.isReloadingData = true; // Prevent state saving during reload
-                console.log("[DEBUG] Reloading data from:", window.currentDbPath);
+                debug("[DEBUG] Reloading data from:", window.currentDbPath);
                 // Show loading state
                 reloadButton.classList.add('loading');
                 const scanStatus = document.getElementById("scan-status");
@@ -149,7 +150,7 @@ function initialize() {
                     reloadButton.classList.remove('loading');
                 }, 1000);
             } else {
-                console.log("[DEBUG] No file currently loaded to reload");
+                debug("[DEBUG] No file currently loaded to reload");
                 alert("Please select a database file first");
             }
         });
@@ -164,13 +165,13 @@ function initialize() {
                 stopAutoRefresh();
                 autoRefreshToggle.classList.remove('active');
                 autoRefreshToggle.title = "Enable auto-refresh (every 3 seconds)";
-                console.log("[DEBUG] Auto-refresh disabled by user");
+                debug("[DEBUG] Auto-refresh disabled by user");
             } else {
                 if (window.currentDbPath) {
                     startAutoRefresh();
                     autoRefreshToggle.classList.add('active');
                     autoRefreshToggle.title = "Disable auto-refresh";
-                    console.log("[DEBUG] Auto-refresh enabled by user");
+                    debug("[DEBUG] Auto-refresh enabled by user");
                 } else {
                     alert("Please select a database file first");
                 }
@@ -257,7 +258,7 @@ function initialize() {
             saveState();
 
             if (tabId === 'agent-info' && !window.isResizing) {
-                console.log("[DEBUG] Switching to Meta Info tab, redrawing charts");
+                debug("[DEBUG] Switching to Meta Info tab, redrawing charts");
                 setTimeout(() => {
                     createCharts(null);
                 }, 100);
@@ -497,7 +498,7 @@ function initialize() {
             stopAutoRefresh();
         });
         
-        console.log("[DEBUG] Initialization complete");
+        debug("[DEBUG] Initialization complete");
     } catch (error) {
         console.error("[DEBUG] Fatal error during initialization:", error);
     }

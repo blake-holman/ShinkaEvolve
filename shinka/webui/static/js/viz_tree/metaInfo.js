@@ -1,4 +1,6 @@
 // Meta tab: run overview, score and cost charts.
+import { debug } from '../log.js';
+import { renderGraph } from './tree.js';
 import { loadDatabase, processData } from './loader.js';
 import { escapeHtml } from './format.js';
 import { selectNodeById } from './selection.js';
@@ -154,7 +156,7 @@ function initializeMetaInfoTab() {
 }
 // Update the Meta Info tab with global data
 export function updateMetaInfoTab(data) {
-    console.log("[DEBUG] Updating Meta Info tab with data");
+    debug("[DEBUG] Updating Meta Info tab with data");
 
     // First, ensure the tab is set up with the correct HTML structure
     initializeMetaInfoTab();
@@ -330,7 +332,7 @@ export function updateMetaInfoTab(data) {
             }
             promptCostsByGen[progGen] += promptCost;
         });
-        console.log("[DEBUG] Prompt costs by generation:", promptCostsByGen);
+        debug("[DEBUG] Prompt costs by generation:", promptCostsByGen);
     }
     
     generations.forEach(genId => {
@@ -356,13 +358,13 @@ export function updateMetaInfoTab(data) {
             
             // Debug logging for first few items
             if (genData.indexOf(d) < 2) {
-                console.log("[DEBUG] Gen", genId, "Program:", d.id.substring(0, 8), 
+                debug("[DEBUG] Gen", genId, "Program:", d.id.substring(0, 8), 
                           "API Cost:", cost, "Embed Cost:", embedCost, "Novelty Cost:", noveltyCost, "Meta Cost:", metaCost,
                           "Metadata keys:", d.metadata ? Object.keys(d.metadata) : 'no metadata');
             }
         });
         
-        console.log("[DEBUG] Generation", genId, "Total API Cost:", genCost, "Total Embed Cost:", genEmbedCost, "Total Novelty Cost:", genNoveltyCost, "Total Meta Cost:", genMetaCost, "Prompt Cost:", genPromptCost);
+        debug("[DEBUG] Generation", genId, "Total API Cost:", genCost, "Total Embed Cost:", genEmbedCost, "Total Novelty Cost:", genNoveltyCost, "Total Meta Cost:", genMetaCost, "Prompt Cost:", genPromptCost);
         
         generationCosts.push({
             x: genId,
@@ -443,7 +445,7 @@ export function updateMetaInfoTab(data) {
     cumulativeSolutionCosts = [];
     
     // Add detailed logging before updating DOM
-    console.log("[DEBUG] Calculated Stats:", {
+    debug("[DEBUG] Calculated Stats:", {
         numGenerations,
         numAgents,
         totalCost: totalApiCostNum.toFixed(2),
@@ -482,15 +484,15 @@ export function updateMetaInfoTab(data) {
     document.getElementById('meta-cost-prompt').textContent = '$' + totalPromptCostNum.toFixed(4);
     document.getElementById('meta-cost-avg').textContent = numAgents > 0 ? '$' + (totalCombinedCost / numAgents).toFixed(4) : 'N/A';
     
-    console.log("[DEBUG] Meta Info tab text content updated");
+    debug("[DEBUG] Meta Info tab text content updated");
 }
 // Create charts for the Meta Info tab
 export function createCharts(currentGenId) {
-    console.log("[DEBUG] Creating charts, currentGenId:", currentGenId);
+    debug("[DEBUG] Creating charts, currentGenId:", currentGenId);
     
     // Skip chart creation during panel resizing
     if (window.isResizing) {
-        console.log("[DEBUG] Skipping chart creation during resize");
+        debug("[DEBUG] Skipping chart creation during resize");
         return;
     }
     
@@ -530,7 +532,7 @@ export function createCharts(currentGenId) {
             return;
         }
         
-        console.log("[DEBUG] Canvas dimensions - scoreChart:", 
+        debug("[DEBUG] Canvas dimensions - scoreChart:", 
                   scoreCanvas.offsetWidth, "x", scoreCanvas.offsetHeight,
                   "scoreBudgetChart:", scoreBudgetCanvas.offsetWidth, "x", scoreBudgetCanvas.offsetHeight,
                   "scoreRuntimeChart:", scoreRuntimeCanvas.offsetWidth, "x", scoreRuntimeCanvas.offsetHeight,
@@ -623,15 +625,15 @@ export function createCharts(currentGenId) {
             .filter(item => item.y !== null && item.y !== undefined && !isNaN(parseFloat(item.y)))
             .map(item => ({x: item.x, y: parseFloat(item.y)}));
 
-        console.log("[DEBUG] Valid score data points:", validScoreData.length);
-        console.log("[DEBUG] Valid agent cost data points:", validAgentCostData.length);
-        console.log("[DEBUG] Valid solution cost data points:", validSolutionCostData.length);
-        console.log("[DEBUG] Valid total cost data points:", validTotalCostData.length);
-        console.log("[DEBUG] Valid generation cost data points:", validGenerationCostData.length);
-        console.log("[DEBUG] Valid embed cost data points:", validEmbedCostData.length);
-        console.log("[DEBUG] Valid novelty cost data points:", validNoveltyCostData.length);
-        console.log("[DEBUG] Valid meta cost data points:", validMetaCostData.length);
-        console.log("[DEBUG] Valid prompt cost data points:", validPromptCostData.length);
+        debug("[DEBUG] Valid score data points:", validScoreData.length);
+        debug("[DEBUG] Valid agent cost data points:", validAgentCostData.length);
+        debug("[DEBUG] Valid solution cost data points:", validSolutionCostData.length);
+        debug("[DEBUG] Valid total cost data points:", validTotalCostData.length);
+        debug("[DEBUG] Valid generation cost data points:", validGenerationCostData.length);
+        debug("[DEBUG] Valid embed cost data points:", validEmbedCostData.length);
+        debug("[DEBUG] Valid novelty cost data points:", validNoveltyCostData.length);
+        debug("[DEBUG] Valid meta cost data points:", validMetaCostData.length);
+        debug("[DEBUG] Valid prompt cost data points:", validPromptCostData.length);
         
         if (validScoreData.length === 0 && validTotalCostData.length === 0) {
             console.error("[DEBUG] No valid data for charts!");
@@ -651,8 +653,8 @@ export function createCharts(currentGenId) {
         
         // Create score chart if we have valid data
         if (validScoreData.length > 0) {
-            console.log("[DEBUG] Creating score chart with", validScoreData.length, "points");
-            console.log("[DEBUG] Adding", validIndividualScoreData.length, "individual score points");
+            debug("[DEBUG] Creating score chart with", validScoreData.length, "points");
+            debug("[DEBUG] Adding", validIndividualScoreData.length, "individual score points");
             
             // Read Y-axis min/max values first, for cleaner debugging
             const yMinValue = document.getElementById('score-y-min').value;
@@ -660,7 +662,7 @@ export function createCharts(currentGenId) {
             const yMin = yMinValue !== '' ? parseFloat(yMinValue) : undefined;
             const yMax = yMaxValue !== '' ? parseFloat(yMaxValue) : undefined;
             
-            console.log("[DEBUG] Y-axis settings - Min:", yMin, "Max:", yMax);
+            debug("[DEBUG] Y-axis settings - Min:", yMin, "Max:", yMax);
             
             // Destroy existing chart instance if it exists
             if (scoreChartInstance) {
@@ -820,13 +822,13 @@ export function createCharts(currentGenId) {
                 }
             });
             
-            console.log("[DEBUG] Score chart created");
+            debug("[DEBUG] Score chart created");
         }
         
         // Create score budget chart (scores vs cumulative cost)
         try {
         if (validScoreData.length > 0 && validTotalCostData.length > 0) {
-            console.log("[DEBUG] Creating score budget chart");
+            debug("[DEBUG] Creating score budget chart");
             
             // Map score data to cumulative total cost (including prompt costs) instead of generation
             // For each score point, find the cumulative total cost at that generation
@@ -881,7 +883,7 @@ export function createCharts(currentGenId) {
             const yMinBudget = yMinBudgetValue !== '' ? parseFloat(yMinBudgetValue) : undefined;
             const yMaxBudget = yMaxBudgetValue !== '' ? parseFloat(yMaxBudgetValue) : undefined;
             
-            console.log("[DEBUG] Score Budget Y-axis settings - Min:", yMinBudget, "Max:", yMaxBudget);
+            debug("[DEBUG] Score Budget Y-axis settings - Min:", yMinBudget, "Max:", yMaxBudget);
             
             // Calculate tight x-axis bounds based on cumulative API cost data
             const allCostValues = [
@@ -893,7 +895,7 @@ export function createCharts(currentGenId) {
             const minCost = Math.max(-0.1, Math.min(...allCostValues) - 0.025); // Add slack but don't go below -0.025
             const maxCost = Math.max(...allCostValues) + 0.025;
             
-            console.log("[DEBUG] Score Budget X-axis range - Min cost:", minCost, "Max cost:", maxCost);
+            debug("[DEBUG] Score Budget X-axis range - Min cost:", minCost, "Max cost:", maxCost);
             
             // Destroy existing chart instance if it exists
             if (scoreBudgetChartInstance) {
@@ -1017,7 +1019,7 @@ export function createCharts(currentGenId) {
                 }
             });
             
-            console.log("[DEBUG] Score budget chart created");
+            debug("[DEBUG] Score budget chart created");
         }
         } catch (error) {
             console.error("[ERROR] Score budget chart creation failed:", error);
@@ -1027,8 +1029,8 @@ export function createCharts(currentGenId) {
         try {
         const allData = window.rawDbData || window.treeData || [];
         if (validScoreData.length > 0 && allData.length > 0) {
-            console.log("[DEBUG] Creating score runtime chart");
-            console.log("[DEBUG] Sample timestamp from data:", allData[0]?.timestamp);
+            debug("[DEBUG] Creating score runtime chart");
+            debug("[DEBUG] Sample timestamp from data:", allData[0]?.timestamp);
             
             // Helper function to parse timestamp to numeric value (seconds since epoch)
             const parseTimestamp = (ts) => {
@@ -1050,7 +1052,7 @@ export function createCharts(currentGenId) {
                 return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
             };
             
-            console.log("[DEBUG] Sample parsed timestamp:", parseTimestamp(allData[0]?.timestamp));
+            debug("[DEBUG] Sample parsed timestamp:", parseTimestamp(allData[0]?.timestamp));
             
             // Sort all data by timestamp to get the time-based progression
             const sortedByTime = [...allData].sort((a, b) => {
@@ -1062,9 +1064,9 @@ export function createCharts(currentGenId) {
             // Get minimum timestamp to normalize times (show elapsed time from start)
             const allTimestamps = sortedByTime.map(d => parseTimestamp(d.timestamp)).filter(t => t > 0);
             
-            console.log("[DEBUG] Valid timestamps count:", allTimestamps.length);
+            debug("[DEBUG] Valid timestamps count:", allTimestamps.length);
             if (allTimestamps.length > 0) {
-                console.log("[DEBUG] Min timestamp:", Math.min(...allTimestamps), "Max timestamp:", Math.max(...allTimestamps));
+                debug("[DEBUG] Min timestamp:", Math.min(...allTimestamps), "Max timestamp:", Math.max(...allTimestamps));
                 const minTimestamp = Math.min(...allTimestamps);
                 
                 // Build cumulative max and mean over time
@@ -1142,7 +1144,7 @@ export function createCharts(currentGenId) {
                     scoreRuntimeBestPathData.sort((a, b) => a.x - b.x);
                 }
                 
-                console.log("[DEBUG] Runtime data arrays built - Max:", scoreRuntimeMaxData.length, 
+                debug("[DEBUG] Runtime data arrays built - Max:", scoreRuntimeMaxData.length, 
                           "Mean:", scoreRuntimeMeanData.length, 
                           "Individual:", scoreRuntimeIndividualData.length, 
                           "BestPath:", scoreRuntimeBestPathData.length);
@@ -1153,7 +1155,7 @@ export function createCharts(currentGenId) {
                 const yMinRuntime = yMinRuntimeValue !== '' ? parseFloat(yMinRuntimeValue) : undefined;
                 const yMaxRuntime = yMaxRuntimeValue !== '' ? parseFloat(yMaxRuntimeValue) : undefined;
                 
-                console.log("[DEBUG] Score Runtime Y-axis settings - Min:", yMinRuntime, "Max:", yMaxRuntime);
+                debug("[DEBUG] Score Runtime Y-axis settings - Min:", yMinRuntime, "Max:", yMaxRuntime);
                 
                 // Calculate tight x-axis bounds based on timestamp data
                 const allTimeValues = [
@@ -1164,12 +1166,12 @@ export function createCharts(currentGenId) {
                 ].filter(t => t !== undefined && !isNaN(t));
                 
                 if (allTimeValues.length === 0) {
-                    console.log("[DEBUG] No valid timestamp data for runtime chart");
+                    debug("[DEBUG] No valid timestamp data for runtime chart");
                 } else {
                 const minTime = Math.max(0, Math.min(...allTimeValues) - 60); // Add 60 seconds slack but don't go below 0
                 const maxTime = Math.max(...allTimeValues) + 60;
                 
-                console.log("[DEBUG] Score Runtime X-axis range - Min time:", minTime, "Max time:", maxTime);
+                debug("[DEBUG] Score Runtime X-axis range - Min time:", minTime, "Max time:", maxTime);
                 
                 // Destroy existing chart instance if it exists
                 if (scoreRuntimeChartInstance) {
@@ -1299,10 +1301,10 @@ export function createCharts(currentGenId) {
                     }
                 });
                 
-                console.log("[DEBUG] Score runtime chart created");
+                debug("[DEBUG] Score runtime chart created");
                 }
             } else {
-                console.log("[DEBUG] No valid timestamps found for runtime chart");
+                debug("[DEBUG] No valid timestamps found for runtime chart");
             }
         }
         } catch (error) {
@@ -1312,7 +1314,7 @@ export function createCharts(currentGenId) {
         // Create cost chart
         try {
         if (validTotalCostData.length > 0) {
-            console.log("[DEBUG] Creating cost chart with API, embedding, and novelty costs breakdown");
+            debug("[DEBUG] Creating cost chart with API, embedding, and novelty costs breakdown");
             
             // Destroy existing chart instance if it exists
             if (costChartInstance) {
@@ -1451,7 +1453,7 @@ export function createCharts(currentGenId) {
                     barPercentage: 0.8,
                     categoryPercentage: 1.0,
                     onClick: (evt, elements, chart) => {
-                        console.log('[DEBUG] Cost chart clicked.', { elements });
+                        debug('[DEBUG] Cost chart clicked.', { elements });
                         if (elements.length === 0) return;
                         const firstPoint = elements[0];
                         const generation = chart.data.datasets[firstPoint.datasetIndex].data[firstPoint.index].x;
@@ -1522,7 +1524,7 @@ export function createCharts(currentGenId) {
                 }
             });
             
-            console.log("[DEBUG] Cost chart created");
+            debug("[DEBUG] Cost chart created");
         }
         } catch (error) {
             console.error("[ERROR] Cost chart creation failed:", error);
@@ -1539,7 +1541,7 @@ export function createCharts(currentGenId) {
             .map(item => ({x: item.x, y: parseFloat(item.y)}));
         
         if (validRuntimeData.length > 0) {
-            console.log("[DEBUG] Creating runtime chart with cumulative and per-generation data");
+            debug("[DEBUG] Creating runtime chart with cumulative and per-generation data");
             
             // Destroy existing chart instance if it exists
             if (runtimeChartInstance) {
@@ -1653,7 +1655,7 @@ export function createCharts(currentGenId) {
                 }
             });
             
-            console.log("[DEBUG] Runtime chart created");
+            debug("[DEBUG] Runtime chart created");
         }
         } catch (error) {
             console.error("[ERROR] Runtime chart creation failed:", error);
@@ -1688,39 +1690,34 @@ function updateBestSolutionPanel(data) {
     document.getElementById('meta-best-agent-name').textContent = bestAgent ? (bestAgent.metadata.patch_name || 'unnamed') : 'N/A';
     document.getElementById('meta-best-agent-gen').textContent = bestAgent ? bestAgent.generation : 'N/A';
 
-    console.log("[DEBUG] Updated best solution panel with max score:", bestScore);
+    debug("[DEBUG] Updated best solution panel with max score:", bestScore);
 }
 
 // Initialize the score type radio buttons
 export function initializeScoreTypeListeners() {
-    console.log("[DEBUG] Initializing score type radio button listeners");
+    debug("[DEBUG] Initializing score type radio button listeners");
     const radioButtons = document.querySelectorAll('input[name="score-type"]');
     
     // Log how many radio buttons we found
-    console.log("[DEBUG] Found", radioButtons.length, "score type radio buttons");
+    debug("[DEBUG] Found", radioButtons.length, "score type radio buttons");
     
     radioButtons.forEach(radio => {
         radio.addEventListener('change', function() {
-            console.log("[DEBUG] Radio button change event fired");
+            debug("[DEBUG] Radio button change event fired");
             const useMinScore = document.querySelector('input[name="score-type"][value="min"]').checked;
-            console.log("[DEBUG] Score type changed to:", useMinScore ? "min" : "max");
+            debug("[DEBUG] Score type changed to:", useMinScore ? "min" : "max");
             
             // Use the window.treeData directly to update the best solution panel
             if (window.treeData && window.treeData.length > 0) {
-                console.log("[DEBUG] Tree data available, length:", window.treeData.length);
+                debug("[DEBUG] Tree data available, length:", window.treeData.length);
                 
                 // First update the best solution panel
                 updateBestSolutionPanel(window.treeData, useMinScore);
                 
                 // Rebuild the tree with the new best node
-                console.log("[DEBUG] Rebuilding tree with useMinScore =", useMinScore);
-                const root = buildTree(window.treeData);
-                
-                // Force a complete rebuild of the tree by clearing the container first
-                console.log("[DEBUG] Clearing and rerendering tree");
-                d3.select("#tree").html("");
-                renderTree(root, false);
-                console.log("[DEBUG] Tree rerendering complete");
+                debug("[DEBUG] Rebuilding tree with useMinScore =", useMinScore);
+                renderGraph(window.treeData, true);
+                debug("[DEBUG] Tree rerendering complete");
                 
                 // Then redraw the charts
                 createCharts(null);
@@ -1740,7 +1737,7 @@ export function initializeScoreTypeListeners() {
     if (yMinInput && yMaxInput) {
         // Create a function that updates charts with a slight delay
         const updateChartsOnInput = () => {
-            console.log("[DEBUG] Y axis value changed - Triggering chart update");
+            debug("[DEBUG] Y axis value changed - Triggering chart update");
             // Use setTimeout to ensure the input value is properly processed
             setTimeout(() => createCharts(null), 10);
         };
@@ -1760,7 +1757,7 @@ export function initializeScoreTypeListeners() {
     
     if (islandYMinInput && islandYMaxInput) {
         const updateIslandChartsOnInput = () => {
-            console.log("[DEBUG] Island Y axis value changed - Triggering island visualization update");
+            debug("[DEBUG] Island Y axis value changed - Triggering island visualization update");
             // Use setTimeout to ensure the input value is properly processed
             setTimeout(() => {
                 if (window.treeData) {
@@ -1781,7 +1778,7 @@ export function initializeScoreTypeListeners() {
 
 // Function to handle score type changes
 function handleScoreTypeChange(isMinScore) {
-    console.log("[DEBUG] handleScoreTypeChange called with isMinScore =", isMinScore);
+    debug("[DEBUG] handleScoreTypeChange called with isMinScore =", isMinScore);
     
     // Make sure the radio button state is synchronized
     document.querySelector('input[name="score-type"][value="min"]').checked = isMinScore;
@@ -1789,7 +1786,7 @@ function handleScoreTypeChange(isMinScore) {
     
     // If we have raw data, reprocess it completely
     if (window.rawDbData && window.rawDbData.length > 0) {
-        console.log("[DEBUG] Reprocessing raw data with", window.rawDbData.length, "rows");
+        debug("[DEBUG] Reprocessing raw data with", window.rawDbData.length, "rows");
         
         // Simulate a complete data reload by reprocessing the data
         processData(window.rawDbData);
@@ -1798,20 +1795,15 @@ function handleScoreTypeChange(isMinScore) {
     
     // Fallback to using the existing tree data
     if (window.treeData && window.treeData.length > 0) {
-        console.log("[DEBUG] Using existing tree data with", window.treeData.length, "rows");
+        debug("[DEBUG] Using existing tree data with", window.treeData.length, "rows");
         
         // First update the best solution panel
         updateBestSolutionPanel(window.treeData, isMinScore);
         
         // Rebuild the tree with the new best node
-        console.log("[DEBUG] Rebuilding tree with isMinScore =", isMinScore);
-        const root = buildTree(window.treeData);
-        
-        // Force a complete rebuild of the tree by clearing the container first
-        console.log("[DEBUG] Clearing and rerendering tree");
-        d3.select("#tree").html("");
-        renderTree(root, false);
-        console.log("[DEBUG] Tree rerendering complete");
+        debug("[DEBUG] Rebuilding tree with isMinScore =", isMinScore);
+        renderGraph(window.treeData, true);
+        debug("[DEBUG] Tree rerendering complete");
         
         // Then redraw the charts
         createCharts(null);
@@ -1820,7 +1812,7 @@ function handleScoreTypeChange(isMinScore) {
         updateScoreHeatbar();
     } else if (window.currentDbPath) {
         // If all else fails but we have a file path, reload the file
-        console.log("[DEBUG] Reloading file from path:", window.currentDbPath);
+        debug("[DEBUG] Reloading file from path:", window.currentDbPath);
         loadDatabase(window.currentDbPath);
     } else {
         console.error("[DEBUG] No data available for rerendering");

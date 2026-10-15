@@ -1,14 +1,15 @@
 // Path tab: lineage of the best program.
+import { debug } from '../log.js';
 import { formatScore } from './format.js';
 import { selectNodeById } from './selection.js';
 
 export function createBestPathVisualization(data) {
-    console.log("[DEBUG] Creating best path visualization");
+    debug("[DEBUG] Creating best path visualization");
     
     // Check if the best path tab is visible
     const bestPathView = document.getElementById('best-path-view');
     if (!bestPathView || !bestPathView.classList.contains('active')) {
-        console.log("[DEBUG] Best path view not active, skipping visualization creation");
+        debug("[DEBUG] Best path view not active, skipping visualization creation");
         return;
     }
 

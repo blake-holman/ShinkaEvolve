@@ -1,4 +1,5 @@
 // Analysis tab: statistics computed from program metadata.
+import { debug } from '../log.js';
 
 // ========== ANALYSIS TAB FUNCTIONS ==========
 
@@ -634,12 +635,12 @@ export function computeCorrectnessRateStats(data, selectedNodeId) {
         }
     });
     
-    console.log('[DEBUG] Rolling Correctness Rate Stats:');
-    console.log('  Final overall:', overallCorrect, '/', overallTotal, '=', (overallCorrect/overallTotal*100).toFixed(1) + '%');
+    debug('[DEBUG] Rolling Correctness Rate Stats:');
+    debug('  Final overall:', overallCorrect, '/', overallTotal, '=', (overallCorrect/overallTotal*100).toFixed(1) + '%');
     patchTypes.forEach(pt => {
         const data = rollingByPatchType[pt];
         if (data.total > 0) {
-            console.log(`  Final ${pt}:`, data.correct, '/', data.total, '=', (data.correct/data.total*100).toFixed(1) + '%');
+            debug(`  Final ${pt}:`, data.correct, '/', data.total, '=', (data.correct/data.total*100).toFixed(1) + '%');
         }
     });
     
@@ -731,12 +732,12 @@ export function computeImprovementRateStats(data, selectedNodeId) {
         }
     });
     
-    console.log('[DEBUG] Rolling Improvement Rate Stats (correct improvements / total attempts):');
-    console.log('  Final overall:', overallImprovedCorrect, '/', overallTotalAttempts, '=', (overallImprovedCorrect/overallTotalAttempts*100).toFixed(1) + '%');
+    debug('[DEBUG] Rolling Improvement Rate Stats (correct improvements / total attempts):');
+    debug('  Final overall:', overallImprovedCorrect, '/', overallTotalAttempts, '=', (overallImprovedCorrect/overallTotalAttempts*100).toFixed(1) + '%');
     patchTypes.forEach(pt => {
         const data = rollingByPatchType[pt];
         if (data.totalAttempts > 0) {
-            console.log(`  Final ${pt}:`, data.improvedCorrect, '/', data.totalAttempts, '=', (data.improvedCorrect/data.totalAttempts*100).toFixed(1) + '%');
+            debug(`  Final ${pt}:`, data.improvedCorrect, '/', data.totalAttempts, '=', (data.improvedCorrect/data.totalAttempts*100).toFixed(1) + '%');
         }
     });
     

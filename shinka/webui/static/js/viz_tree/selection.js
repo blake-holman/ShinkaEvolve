@@ -1,9 +1,10 @@
 // Node selection shared by the tree and tables.
+import { debug } from '../log.js';
 import { renderGraph } from './tree.js';
 import { displayNodeDetails } from './nodeDetails.js';
 
 export function selectNodeById(nodeId, switchToTreeView = true, forceRightTabSwitch = true) {
-    console.log(`[DEBUG] Selecting node ID: ${nodeId}, switch to tree: ${switchToTreeView}`);
+    debug(`[DEBUG] Selecting node ID: ${nodeId}, switch to tree: ${switchToTreeView}`);
     window.pendingNodeSelectionId = nodeId;
 
     if (switchToTreeView) {

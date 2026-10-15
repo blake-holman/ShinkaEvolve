@@ -1,4 +1,5 @@
 // Polling for new programs while a run is active.
+import { debug } from '../log.js';
 import { loadDatabaseSilent } from './loader.js';
 
 // Auto-refresh variables
@@ -8,7 +9,7 @@ export let lastDataTimestamp = null;
 
 // Auto-refresh functionality
 export function initializeAutoRefresh() {
-    console.log("[DEBUG] Initializing auto-refresh functionality");
+    debug("[DEBUG] Initializing auto-refresh functionality");
     
     // Start auto-refresh when a database is loaded
     if (window.currentDbPath) {
@@ -22,7 +23,7 @@ export function startAutoRefresh() {
     }
     
     autoRefreshEnabled = true;
-    console.log("[DEBUG] Starting auto-refresh with 3 second intervals");
+    debug("[DEBUG] Starting auto-refresh with 3 second intervals");
     
     // Update button state
     const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
@@ -54,7 +55,7 @@ export function stopAutoRefresh() {
     
 
     
-    console.log("[DEBUG] Auto-refresh stopped");
+    debug("[DEBUG] Auto-refresh stopped");
 }
 async function checkForNewData() {
     if (!window.currentDbPath) return;
@@ -63,7 +64,7 @@ async function checkForNewData() {
         // Use lightweight count endpoint to check for changes
         const response = await fetch(`/get_program_count?db_path=${encodeURIComponent(window.currentDbPath)}`);
         if (!response.ok) {
-            console.log("[DEBUG] Auto-refresh: Failed to check for new data");
+            debug("[DEBUG] Auto-refresh: Failed to check for new data");
             return;
         }
         
@@ -76,7 +77,7 @@ async function checkForNewData() {
                                 result.max_timestamp > lastDataTimestamp;
         
         if (countChanged || timestampChanged) {
-            console.log("[DEBUG] Auto-refresh: New data detected", 
+            debug("[DEBUG] Auto-refresh: New data detected", 
                        {countChanged, timestampChanged, 
                         serverCount: result.count, localCount: currentDataCount});
             
@@ -92,7 +93,7 @@ async function checkForNewData() {
             lastDataTimestamp = result.max_timestamp;
         }
     } catch (error) {
-        console.log("[DEBUG] Auto-refresh: Error checking for new data:", error);
+        debug("[DEBUG] Auto-refresh: Error checking for new data:", error);
     }
 }
 

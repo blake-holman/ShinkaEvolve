@@ -1,4 +1,5 @@
 // Scratch tab: meta scratchpad files written by the summarizer.
+import { debug } from '../log.js';
 
 // Function to initialize meta analysis controls
 export function initializeMetaAnalysis() {
@@ -80,7 +81,7 @@ function downloadMetaAsPDF() {
     // Get the current meta update identifier
     const currentGen = document.getElementById('generation-value').textContent;
     
-    console.log('[DEBUG] Starting PDF download process...');
+    debug('[DEBUG] Starting PDF download process...');
     
     // Use the downloadMetaPdf function which calls the backend endpoint
     downloadMetaPdf(window.currentDbPath, currentGen);
@@ -89,9 +90,9 @@ function downloadMetaAsPDF() {
 // Function to download text content as a formatted text file
 function generateSimplePDFFromText(rawText, filename, dbName, generation, downloadBtn, originalText) {
     try {
-        console.log('[DEBUG] Creating downloadable text file from content');
-        console.log('[DEBUG] Raw text length:', rawText.length);
-        console.log('[DEBUG] First 200 chars:', rawText.substring(0, 200));
+        debug('[DEBUG] Creating downloadable text file from content');
+        debug('[DEBUG] Raw text length:', rawText.length);
+        debug('[DEBUG] First 200 chars:', rawText.substring(0, 200));
         
         // Add header to the content
         const header = `Meta Analysis - Update ${generation}
@@ -122,7 +123,7 @@ ${'='.repeat(80)}
         // Reset button state
         downloadBtn.textContent = originalText;
         downloadBtn.disabled = false;
-        console.log('[DEBUG] Text file download triggered successfully');
+        debug('[DEBUG] Text file download triggered successfully');
             
     } catch (error) {
         console.error('Text file generation failed:', error);
@@ -134,7 +135,7 @@ ${'='.repeat(80)}
 
 // Function to load available meta files for a database
 export function loadAvailableMetaFiles(dbPath) {
-    console.log("[DEBUG] Loading available meta files for:", dbPath);
+    debug("[DEBUG] Loading available meta files for:", dbPath);
     
     // Clear the cache when loading a new database
     window.metaContentCache = {};
@@ -149,7 +150,7 @@ export function loadAvailableMetaFiles(dbPath) {
                 try {
                     const metaFiles = JSON.parse(xhr.responseText);
                     window.availableMetaFiles = metaFiles;
-                    console.log("[DEBUG] Found meta files:", metaFiles);
+                    debug("[DEBUG] Found meta files:", metaFiles);
                     
                     // Update slider range based on available files
                     updateMetaSlider(metaFiles);
@@ -169,7 +170,7 @@ export function loadAvailableMetaFiles(dbPath) {
                     showMetaError("Failed to load meta files list.");
                 }
             } else if (xhr.status === 404) {
-                console.log("[DEBUG] No meta files found for this database");
+                debug("[DEBUG] No meta files found for this database");
                 showMetaMessage("No meta analysis files found for this database.");
                 window.availableMetaFiles = [];
             } else {
@@ -209,7 +210,7 @@ function updateMetaSlider(metaFiles) {
     // Store available generations for validation
     slider.setAttribute('data-available-generations', JSON.stringify(generations));
     
-    console.log(`[DEBUG] Updated slider range: ${minGen} - ${maxGen}, available: ${generations.join(', ')}`);
+    debug(`[DEBUG] Updated slider range: ${minGen} - ${maxGen}, available: ${generations.join(', ')}`);
 }
 
 // Function to show a message in the meta content area
@@ -241,7 +242,7 @@ function loadMetaContent(generation) {
         return;
     }
     
-    console.log("[DEBUG] Loading meta analysis for update:", generation);
+    debug("[DEBUG] Loading meta analysis for update:", generation);
     
     // Show loading state
     const metaContent = document.getElementById('meta-content');
@@ -461,7 +462,7 @@ window.parsedMetaSections = {};
 function showMetaSection(sectionType) {
     const sectionContent = document.getElementById('meta-section-content');
     if (!sectionContent || !window.parsedMetaSections) {
-        console.log("[DEBUG] showMetaSection: Missing elements or data", {
+        debug("[DEBUG] showMetaSection: Missing elements or data", {
             sectionContent: !!sectionContent,
             parsedMetaSections: !!window.parsedMetaSections
         });
@@ -471,7 +472,7 @@ function showMetaSection(sectionType) {
     const sections = window.parsedMetaSections;
     let content = '';
     
-    console.log("[DEBUG] showMetaSection:", sectionType);
+    debug("[DEBUG] showMetaSection:", sectionType);
     
     switch(sectionType) {
         case 'individual-programs':
@@ -487,7 +488,7 @@ function showMetaSection(sectionType) {
             content = '<p>Section not found.</p>';
     }
     
-    console.log("[DEBUG] Final content length:", content.length);
+    debug("[DEBUG] Final content length:", content.length);
     sectionContent.innerHTML = content;
 }
 
@@ -543,13 +544,13 @@ function displayMetaContent(metaData, skipAsyncLoad = false) {
         // Parse content into sections
         window.parsedMetaSections = parseMetaIntoSections(metaData.content);
         
-        console.log("[DEBUG] Displaying meta content for update", currentGen);
+        debug("[DEBUG] Displaying meta content for update", currentGen);
         
         // Show the content for the currently active sub-tab
         const activeSubTab = document.querySelector('.meta-sub-tab.active');
         const activeSection = activeSubTab ? activeSubTab.getAttribute('data-section') : 'individual-programs';
         
-        console.log("[DEBUG] Active sub-tab:", activeSubTab, "Active section:", activeSection);
+        debug("[DEBUG] Active sub-tab:", activeSubTab, "Active section:", activeSection);
         
         // Display the header info
         metaContent.innerHTML = `
@@ -567,7 +568,7 @@ function displayMetaContent(metaData, skipAsyncLoad = false) {
             showMetaSection(activeSection);
         }, 0);
         
-        console.log("[DEBUG] Successfully displayed meta content for update", currentGen);
+        debug("[DEBUG] Successfully displayed meta content for update", currentGen);
     } catch (e) {
         console.error("[ERROR] Failed to render meta content:", e);
         showMetaError("Failed to render meta analysis content.");
@@ -610,7 +611,7 @@ function generateSimpleDiffHTML(oldText, newText) {
 
 // Function to download meta content as PDF
 function downloadMetaPdf(dbPath, generation) {
-    console.log(`Downloading meta PDF for DB: ${dbPath}, Update: ${generation}`);
+    debug(`Downloading meta PDF for DB: ${dbPath}, Update: ${generation}`);
     const url = `/download_meta_pdf?db_path=${encodeURIComponent(dbPath)}&processed_count=${generation}`;
     window.open(url, '_blank');
 }
@@ -622,7 +623,7 @@ function loadMetaContentForDiff(generation, onComplete) {
         return; // Already cached
     }
     
-    console.log("[DEBUG] Loading meta content for diff comparison:", generation);
+    debug("[DEBUG] Loading meta content for diff comparison:", generation);
     
     const xhr = new XMLHttpRequest();
     xhr.open('GET', `/get_meta_content?db_path=${encodeURIComponent(window.currentDbPath)}&processed_count=${generation}`, true);
@@ -632,7 +633,7 @@ function loadMetaContentForDiff(generation, onComplete) {
             try {
                 const response = JSON.parse(xhr.responseText);
                 window.metaContentCache[generation] = response;
-                console.log("[DEBUG] Cached meta content for update", generation);
+                debug("[DEBUG] Cached meta content for update", generation);
                 
                 // Call the completion callback if provided
                 if (onComplete) onComplete();
