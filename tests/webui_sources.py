@@ -27,8 +27,14 @@ def viz_tree_js() -> str:
 
 
 def index_source() -> str:
-    return _concat(WEBUI / "index.html", STATIC / "css" / "index.css", STATIC / "js" / "index.js")
+    return _concat(
+        WEBUI / "index.html", STATIC / "css" / "index.css", STATIC / "js" / "index.js"
+    )
 
 
 def compare_source() -> str:
-    return _concat(WEBUI / "compare.html", STATIC / "css" / "compare.css", STATIC / "js" / "compare.js")
+    return _concat(
+        WEBUI / "compare.html",
+        STATIC / "css" / "compare.css",
+        STATIC / "js" / "compare.js",
+    )

@@ -1,7 +1,6 @@
 import json
 import re
 import subprocess
-from pathlib import Path
 
 
 from webui_sources import viz_tree_js
@@ -25,7 +24,9 @@ def _extract_js_function_source(function_name: str) -> str:
             if brace_depth == 0:
                 return html[start : idx + 1]
 
-    raise AssertionError(f"Could not extract complete function body for {function_name}")
+    raise AssertionError(
+        f"Could not extract complete function body for {function_name}"
+    )
 
 
 def _run_normalize_tree_roots(nodes: list[dict]) -> list[dict]:

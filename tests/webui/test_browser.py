@@ -14,12 +14,28 @@ from .conftest import DB_PATH
 playwright_api = pytest.importorskip("playwright.sync_api")
 
 LEFT_TABS = [
-    "tree-view", "meta-prompt-view", "table-view", "metrics-view", "embeddings-view",
-    "clusters-view", "islands-view", "model-posteriors-view", "best-path-view", "maps-view",
+    "tree-view",
+    "meta-prompt-view",
+    "table-view",
+    "metrics-view",
+    "embeddings-view",
+    "clusters-view",
+    "islands-view",
+    "model-posteriors-view",
+    "best-path-view",
+    "maps-view",
 ]
 RIGHT_TABS = [
-    "agent-info", "pareto-front", "meta-analysis", "node-details", "agent-code",
-    "code-diff", "log-output", "llm-result", "analysis", "throughput",
+    "agent-info",
+    "pareto-front",
+    "meta-analysis",
+    "node-details",
+    "agent-code",
+    "code-diff",
+    "log-output",
+    "llm-result",
+    "analysis",
+    "throughput",
 ]
 
 IGNORED_CONSOLE = ("willReadFrequently", "GL Driver Message")
@@ -44,9 +60,11 @@ def page(browser, server):
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on(
         "console",
-        lambda m: errors.append(f"console.{m.type}: {m.text}")
-        if m.type == "error" and not any(s in m.text for s in IGNORED_CONSOLE)
-        else None,
+        lambda m: (
+            errors.append(f"console.{m.type}: {m.text}")
+            if m.type == "error" and not any(s in m.text for s in IGNORED_CONSOLE)
+            else None
+        ),
     )
     page.on(
         "requestfailed",
@@ -54,9 +72,14 @@ def page(browser, server):
     )
     page.route(
         "**/*",
-        lambda route: route.continue_()
-        if route.request.url.startswith(base)
-        else (errors.append(f"external request: {route.request.url}"), route.abort()),
+        lambda route: (
+            route.continue_()
+            if route.request.url.startswith(base)
+            else (
+                errors.append(f"external request: {route.request.url}"),
+                route.abort(),
+            )
+        ),
     )
     page.base = base
     page.errors = errors

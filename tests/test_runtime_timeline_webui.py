@@ -1,6 +1,3 @@
-from pathlib import Path
-
-
 from webui_sources import viz_tree_source
 
 
@@ -12,7 +9,10 @@ def test_runtime_timeline_layout_reserves_space_for_legend():
     assert "const RUNTIME_TIMELINE_MIN_HEIGHT = 220;" in html
     assert "const RUNTIME_TIMELINE_BASE_CHROME = 140;" in html
     assert "function getRuntimeTimelinePlotHeight(laneCount)" in html
-    assert "RUNTIME_TIMELINE_BASE_CHROME + (safeLaneCount * RUNTIME_TIMELINE_ROW_HEIGHT)" in html
+    assert (
+        "RUNTIME_TIMELINE_BASE_CHROME + (safeLaneCount * RUNTIME_TIMELINE_ROW_HEIGHT)"
+        in html
+    )
     assert "margin: { l: 150, r: 10, t: 60, b: 105 }" in html
     assert "laneCount = null" in html
     assert "layout.yaxis.range = [laneCount - 0.5, -0.5];" in html
@@ -45,13 +45,19 @@ def test_embeddings_heatmap_requires_hydrated_embedding_fields_before_render():
 def test_embeddings_heatmap_refetches_when_cached_full_data_is_stale():
     html = viz_tree_source()
 
-    assert "function fullProgramDataCoversEmbeddingHydration(existingData, fullData)" in html
-    assert "const cachedFullData = window.fullProgramDataByDb[window.currentDbPath];" in html
+    assert (
+        "function fullProgramDataCoversEmbeddingHydration(existingData, fullData)"
+        in html
+    )
+    assert (
+        "const cachedFullData = window.fullProgramDataByDb[window.currentDbPath];"
+        in html
+    )
     assert (
         "if (cachedFullData && fullProgramDataCoversEmbeddingHydration(window.treeData, cachedFullData))"
         in html
     )
-    assert "debug(\"[DEBUG] Cached full embedding data is stale, refetching\")" in html
+    assert 'debug("[DEBUG] Cached full embedding data is stale, refetching")' in html
 
 
 def test_runtime_timeline_dedupes_source_jobs_and_deprioritizes_island_copies():
@@ -77,7 +83,10 @@ def test_runtime_timeline_uses_adaptive_height_and_fixed_lane_thickness():
     html = viz_tree_source()
 
     assert 'id="throughput-runtime-plot" style="width: 100%; overflow: hidden;"' in html
-    assert "const runtimePlotHeight = getRuntimeTimelinePlotHeight(laneLabels.length);" in html
+    assert (
+        "const runtimePlotHeight = getRuntimeTimelinePlotHeight(laneLabels.length);"
+        in html
+    )
     assert "const runtimePlotHeight = getRuntimeTimelinePlotHeight(laneCount);" in html
     assert "const poolLineWidth = getRuntimeTimelineLineWidth();" in html
     assert "const legacyBarWidth = getRuntimeTimelineBarWidth();" in html
@@ -93,11 +102,17 @@ def test_runtime_timeline_can_be_toggled_visible_by_default():
     assert 'onclick="toggleThroughputRuntimePlot()"' in html
     assert 'id="throughput-runtime-plot-wrapper"' in html
     assert "window.isThroughputRuntimePlotVisible = true;" in html
-    assert "function setThroughputRuntimePlotVisibility(isVisible, rerender = false)" in html
+    assert (
+        "function setThroughputRuntimePlotVisibility(isVisible, rerender = false)"
+        in html
+    )
     assert "function toggleThroughputRuntimePlot()" in html
     assert "button.textContent = isVisible ? 'Hide Plot' : 'Show Plot';" in html
     assert "wrapper.style.display = isVisible ? 'block' : 'none';" in html
-    assert "renderRuntimeTimelinePlot(window.treeData, window.selectedNodeId || null, 'throughput-runtime-summary', 'throughput-runtime-plot');" in html
+    assert (
+        "renderRuntimeTimelinePlot(window.treeData, window.selectedNodeId || null, 'throughput-runtime-summary', 'throughput-runtime-plot');"
+        in html
+    )
 
 
 def test_throughput_tab_contains_runtime_and_utilization_sections():
@@ -168,9 +183,7 @@ def test_normalized_occupancy_plot_uses_short_util_label():
     assert "name: `${stage.label} Utilization`" not in html
     assert "name: '100% Cap.'" in html
     assert "name: '100% Capacity'" not in html
-    assert (
-        "legend: { orientation: 'h', x: 0.01, y: 1.12, font: { size: 11 } }" in html
-    )
+    assert "legend: { orientation: 'h', x: 0.01, y: 1.12, font: { size: 11 } }" in html
 
 
 def test_meta_panel_uses_update_wording_instead_of_generation_wording():
@@ -181,9 +194,9 @@ def test_meta_panel_uses_update_wording_instead_of_generation_wording():
     assert "Info: <code>${escapeHtml(resultsDir)}</code>" in html
     assert '<label for="generation-slider">Meta Update:</label>' in html
     assert "Meta analysis for update ${generation} is not available." in html
-    assert 'Meta analysis for this update is not available.' in html
+    assert "Meta analysis for this update is not available." in html
     assert "Failed to load meta analysis for update ${generation}." in html
-    assert 'Loading meta analysis for update:' in html
+    assert "Loading meta analysis for update:" in html
     assert "Load the highest update file by default" in html
     assert "const currentGen = metaData.processed_count ?? metaData.generation;" in html
     assert "Scratchpad - Update ${currentGen}" in html
