@@ -1200,6 +1200,15 @@ class ProgramDatabase:
         if not self.cursor:
             raise ConnectionError("DB not connected.")
 
+        if self.config.parent_selection_strategy == "latest":
+            self.cursor.execute(
+                "SELECT * FROM programs ORDER BY generation DESC, timestamp DESC, id DESC LIMIT 1"
+            )
+            row = self.cursor.fetchone()
+            if row is None:
+                raise ValueError("Database empty - no programs to sample.")
+            return self._program_from_row(row), [], []
+
         # Check if all islands are initialized
         if not self.island_manager.are_all_islands_initialized():
             # Get initial program (first program in database)
@@ -1323,6 +1332,10 @@ class ProgramDatabase:
         """
         if not self.cursor:
             raise ConnectionError("DB not connected.")
+
+        if self.config.parent_selection_strategy == "latest":
+            parent, archive, top_k = self.sample()
+            return parent, archive, top_k, False
 
         # Check if all islands are initialized
         if not self.island_manager.are_all_islands_initialized():

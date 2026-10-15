@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import shlex
+import signal
 import subprocess
 import time
 import uuid
@@ -13,6 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
+import psutil
 
 from shinka.llm.constants import TIMEOUT
 
@@ -22,7 +24,7 @@ DEFAULT_HEADLESS_COMMAND = "npx -y @roberttlange/headless"
 HEADLESS_COMMAND_ENV = "SHINKA_HEADLESS_COMMAND"
 HEADLESS_TIMEOUT_ENV = "SHINKA_HEADLESS_TIMEOUT"
 
-_VALID_EFFORTS = {"low", "medium", "high", "xhigh"}
+_VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 _CLAUDE_TRANSIENT_RETRIES = 2
 _CLAUDE_TRANSIENT_BACKOFF_SECONDS = 3.0
 
@@ -41,10 +43,12 @@ def headless_command_prefix() -> list[str]:
     return shlex.split(raw_command)
 
 
-def headless_timeout() -> float:
+def headless_timeout() -> float | None:
     raw_timeout = os.getenv(HEADLESS_TIMEOUT_ENV)
     if raw_timeout is None:
         return float(TIMEOUT)
+    if raw_timeout.strip().lower() in {"none", "null", "unlimited"}:
+        return None
     timeout = float(raw_timeout)
     if timeout <= 0:
         raise ValueError(f"{HEADLESS_TIMEOUT_ENV} must be > 0.")
@@ -92,7 +96,7 @@ def check_headless_available() -> None:
             cmd,
             capture_output=True,
             text=True,
-            timeout=min(headless_timeout(), 60.0),
+            timeout=min(headless_timeout() or 60.0, 60.0),
             check=False,
         )
     except FileNotFoundError as exc:
@@ -229,6 +233,25 @@ def _run_headless_command_sync(
     return completed
 
 
+def _kill_process_tree(process):
+    try:
+        descendants = psutil.Process(process.pid).children(recursive=True)
+    except psutil.NoSuchProcess:
+        descendants = []
+    for descendant in reversed(descendants):
+        try:
+            descendant.kill()
+        except psutil.NoSuchProcess:
+            pass
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError:
+        pass
+
+
 async def _run_headless_command_async(
     *,
     model: HeadlessModel,
@@ -243,6 +266,7 @@ async def _run_headless_command_async(
                 stderr=asyncio.subprocess.PIPE,
                 executable="/bin/sh",
                 env=_subprocess_env(model),
+                start_new_session=(os.name == "posix"),
             )
         else:
             process = await asyncio.create_subprocess_exec(
@@ -250,15 +274,17 @@ async def _run_headless_command_async(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_subprocess_env(model),
+                start_new_session=(os.name == "posix"),
             )
+        communication = asyncio.create_task(process.communicate())
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                asyncio.shield(communication),
                 timeout=headless_timeout(),
             )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.communicate()
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            _kill_process_tree(process)
+            await asyncio.shield(communication)
             raise
         completed = subprocess.CompletedProcess(
             args=command,
@@ -351,6 +377,10 @@ def _query_result(
     kwargs: dict[str, Any],
     model_posteriors: dict[str, float] | None,
 ) -> QueryResult:
+    cost_fields = ("cost", "total_cost", "input_cost", "prompt_cost", "output_cost", "completion_cost")
+    kwargs = {**kwargs, "headless_pricing_unknown": not any(
+        _numeric_values(usage.get(name)) for name in cost_fields
+    )}
     new_msg_history = [
         *msg_history,
         {"role": "user", "content": msg},

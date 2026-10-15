@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import psutil
 
 from shinka.cli import run as cli_run
 from shinka.core.async_runner import ShinkaEvolveRunner
@@ -20,6 +21,8 @@ from shinka.llm.client import get_async_client_llm, get_client_llm
 from shinka.llm.kwargs import sample_model_kwargs
 from shinka.llm.providers.headless import (
     _build_headless_command,
+    _query_result,
+    _run_headless_command_async,
     parse_headless_model,
     query_headless,
     query_headless_async,
@@ -129,6 +132,59 @@ def test_parse_headless_model_with_model_and_effort():
     assert parsed.agent == "opencode"
     assert parsed.agent_model == "openai/gpt-5.4"
     assert parsed.effort == "high"
+
+
+@pytest.mark.parametrize("usage, unknown", [
+    ({"input_tokens": 1}, True),
+    ({"cost": None}, True),
+    ({"cost": 0.0}, False),
+    ({"cost": {"total": 0.25}}, False),
+])
+def test_headless_reports_missing_cost(usage, unknown):
+    result = _query_result(content="done", usage=usage, model="headless/claude",
+                           msg="", system_msg="", msg_history=[], kwargs={},
+                           model_posteriors=None)
+    assert result.kwargs["headless_pricing_unknown"] is unknown
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+@pytest.mark.parametrize("cancel", [False, True])
+def test_headless_deadline_kills_descendants(tmp_path, monkeypatch, agent, cancel):
+    child_file = tmp_path / "child.pid"
+    script = tmp_path / "spawn.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)\n"
+        f"Path({str(child_file)!r}).write_text(str(child.pid))\n"
+        "time.sleep(60)\n", encoding="utf-8")
+    monkeypatch.setenv("SHINKA_HEADLESS_TIMEOUT", "2")
+
+    async def run():
+        task = asyncio.create_task(_run_headless_command_async(
+            model=parse_headless_model(f"headless/{agent}"),
+            command=[sys.executable, str(script)],
+        ))
+        for _ in range(100):
+            if child_file.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert child_file.exists()
+        if cancel:
+            task.cancel()
+        with pytest.raises(asyncio.CancelledError if cancel else asyncio.TimeoutError):
+            await task
+        child_pid = int(child_file.read_text())
+        for _ in range(100):
+            try:
+                if psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE:
+                    return
+            except psutil.NoSuchProcess:
+                return
+            await asyncio.sleep(0.01)
+        pytest.fail("Headless descendant survived cancellation")
+
+    asyncio.run(run())
 
 
 def test_resolve_headless_model_backend():
@@ -448,3 +504,13 @@ def test_shinka_run_full_headless_cli_mutation_succeeds(tmp_path, monkeypatch):
         for path in metrics_files
     )
     assert best_score == pytest.approx(1.0)
+
+
+def test_max_effort_and_unlimited_deadline(monkeypatch):
+    from shinka.llm.providers.headless import headless_timeout
+    assert parse_headless_model("headless/codex@gpt-5.6-luna?effort=max").effort == "max"
+    monkeypatch.setenv("SHINKA_HEADLESS_TIMEOUT", "none")
+    assert headless_timeout() is None
+    monkeypatch.setenv("SHINKA_HEADLESS_TIMEOUT", "0")
+    with pytest.raises(ValueError):
+        headless_timeout()

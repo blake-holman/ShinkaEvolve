@@ -4,6 +4,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from shinka.database import DatabaseConfig, Program, ProgramDatabase
 from shinka.database.async_dbase import AsyncProgramDatabase
 
@@ -17,6 +19,41 @@ def _program(program_id: str) -> Program:
         generation=0,
         island_idx=0,
     )
+
+
+@pytest.mark.parametrize("first_correct", [False, True])
+def test_latest_parent_keeps_unproved_candidates_eligible(tmp_path, first_correct):
+    database = ProgramDatabase(DatabaseConfig(
+        db_path=str(tmp_path / "latest.db"), num_islands=1,
+        parent_selection_strategy="latest",
+    ), embedding_model="")
+    try:
+        first = Program(id="proved", code="old", generation=0,
+                        correct=first_correct, combined_score=-16)
+        latest = Program(id="unresolved", code="latest", generation=1,
+                         correct=False, combined_score=0)
+        database.add(first)
+        database.add(latest)
+        parent, archive, top_k, needs_fix = database.sample_with_fix_mode()
+        assert parent.id == latest.id
+        assert (archive, top_k, needs_fix) == ([], [], False)
+        assert database.sample()[0].id == latest.id
+        if first_correct:
+            assert database.get_best_program().id == first.id
+    finally:
+        database.close()
+
+
+def test_latest_parent_reports_empty_database(tmp_path):
+    database = ProgramDatabase(DatabaseConfig(
+        db_path=str(tmp_path / "empty.db"), num_islands=1,
+        parent_selection_strategy="latest",
+    ), embedding_model="")
+    try:
+        with pytest.raises(ValueError, match="Database empty"):
+            database.sample_with_fix_mode()
+    finally:
+        database.close()
 
 
 def test_program_database_init_without_openai_key(monkeypatch):

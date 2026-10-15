@@ -145,7 +145,7 @@ with a rate-limited warning; population and final snapshots remain authoritative
 | `stagnation_threshold` | `int` | `100` | No-improvement generations before spawn. |
 | `island_spawn_strategy` | `str` | `'initial'` | Spawn seed: `initial`, `best`, `archive_random`. |
 | `island_spawn_subtree_size` | `int` | `1` | Number of copied programs when spawning. |
-| `parent_selection_strategy` | `str` | `'weighted'` | Parent selector: `weighted`, `power_law`, `beam_search`. |
+| `parent_selection_strategy` | `str` | `'weighted'` | Parent selector: `weighted`, `power_law`, `beam_search`, or `latest` (newest candidate regardless of correctness, no inspirations or forced fix mode). |
 | `exploitation_alpha` | `float` | `1.0` | Power-law strength for parent selection. |
 | `exploitation_ratio` | `float` | `0.2` | Probability of selecting from archive. |
 | `parent_selection_lambda` | `float` | `10.0` | Sigmoid sharpness for weighted parent selection. |
