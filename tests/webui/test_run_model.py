@@ -24,7 +24,10 @@ const rows = {json.dumps(data)};
 {script}
 """
     completed = subprocess.run(
-        ["node", "--input-type=module", "-e", code], check=True, capture_output=True, text=True
+        ["node", "--input-type=module", "-e", code],
+        check=True,
+        capture_output=True,
+        text=True,
     )
     return json.loads(completed.stdout)
 
@@ -123,7 +126,9 @@ console.log(JSON.stringify({
     assert out["dur"] == "1h 2m" and out["ago"] == "1 min ago"
     assert out["score"] == "0.9809"
     assert out["esc"] == "&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;"
-    assert out["model"] in ("gpt-5.5-mini", "claude-sonnet-5-5") and out["patch"] == "init"
+    assert (
+        out["model"] in ("gpt-5.5-mini", "claude-sonnet-5-5") and out["patch"] == "init"
+    )
 
 
 def test_empty_run():
@@ -135,3 +140,98 @@ console.log(JSON.stringify({ size: model.programs.size, best: model.best, gens: 
         [],
     )
     assert out == {"size": 0, "best": None, "gens": 1, "status": "idle", "visible": 0}
+
+
+def test_cycles_null_scores_and_subtrees():
+    rows = [
+        {
+            "id": "r",
+            "parent_id": None,
+            "generation": 0,
+            "correct": 1,
+            "combined_score": 0.5,
+            "timestamp": 1,
+        },
+        {
+            "id": "a",
+            "parent_id": "r",
+            "generation": 1,
+            "correct": 1,
+            "combined_score": None,
+            "timestamp": 2,
+        },
+        {
+            "id": "b",
+            "parent_id": "a",
+            "generation": 2,
+            "correct": 1,
+            "combined_score": 0.7,
+            "timestamp": 3,
+        },
+        {
+            "id": "c",
+            "parent_id": "b",
+            "generation": 3,
+            "correct": 0,
+            "combined_score": 0.0,
+            "timestamp": 9,
+        },
+        {
+            "id": "x",
+            "parent_id": "y",
+            "generation": 1,
+            "correct": 1,
+            "combined_score": 0.6,
+            "timestamp": 4,
+        },
+        {
+            "id": "y",
+            "parent_id": "x",
+            "generation": 2,
+            "correct": 1,
+            "combined_score": 0.6,
+            "timestamp": 5,
+        },
+        {
+            "id": "orphan",
+            "parent_id": "missing",
+            "generation": 4,
+            "correct": 1,
+            "combined_score": 0.1,
+            "timestamp": 6,
+        },
+    ]
+    out = run_node(
+        """
+const model = m.buildRunModel(rows, { now: 10, extraCost: 0.25 });
+const all = m.visibleIds(model, m.allExpanded(model));
+const collapsedRoot = m.hiddenDescendantCount(model, "r", new Set());
+const sub = m.expandSubtree(model, new Set(), "r");
+const back = m.collapseSubtree(model, sub, "r");
+console.log(JSON.stringify({
+  roots: model.roots.slice().sort(), best: model.best.id, allVisible: all.size, total: model.programs.size,
+  correct: model.totals.correctCount, nullScore: m.formatScore(rows[1].combined_score),
+  nullDuration: m.formatDuration(null), nullAgo: m.formatAgo(undefined),
+  collapsedRoot, subtreeVisible: m.visibleIds(model, sub).has("c"), backEmpty: back.size,
+  newest: model.totals.newestId, defaultHasNewest: m.visibleIds(model, m.defaultExpanded(model)).has("c"),
+  totalCost: model.totals.totalCost, extra: model.totals.extraCost, status: model.status,
+  deltaNull: m.scoreDelta(model.programs.get("b"), model.programs.get("a")),
+  patch: m.patchWords({ generation: 3, metadata: { patch_type: "cross" } }), deltaCls: m.deltaClass(-0.1),
+}));
+""",
+        rows,
+    )
+    assert out["roots"] == ["orphan", "r", "x", "y"]
+    assert out["best"] == "b"
+    assert out["allVisible"] == out["total"] == 7
+    assert out["correct"] == 6
+    assert (
+        out["nullScore"] == "–" and out["nullDuration"] == "–" and out["nullAgo"] == "–"
+    )
+    assert out["collapsedRoot"] == 3 and out["subtreeVisible"] and out["backEmpty"] == 0
+    assert out["newest"] == "c" and out["defaultHasNewest"]
+    assert (
+        out["totalCost"] == 0.25 and out["extra"] == 0.25 and out["status"] == "active"
+    )
+    assert out["deltaNull"] is None
+    assert out["patch"] == "Crossover" and out["deltaCls"] == "delta--down"

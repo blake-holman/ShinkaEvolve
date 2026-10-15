@@ -9,14 +9,17 @@ from typing import Any, Dict
 
 from ..context import ServerContext
 from ..db_reader import open_sqlite_readonly, with_retries
+from ..failed_nodes import load_failed_proposal_nodes
 from ..paths import resolve_database, results_dir_for
 from ..responses import HttpError, Response, json_response
 
 logger = logging.getLogger("shinka.webui")
 
+COST_KEYS = ("api_costs", "embed_cost", "novelty_cost", "meta_cost")
+
 _COST_SUM = " + ".join(
     f"COALESCE(CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.{key}') ELSE 0 END, 0)"
-    for key in ("api_costs", "embed_cost", "novelty_cost", "meta_cost")
+    for key in COST_KEYS
 )
 
 STATS_QUERY = f"""
@@ -73,7 +76,20 @@ def _prompt_stats(prompts_file: Path) -> Dict[str, Any]:
     return stats
 
 
-def compute_stats(db_file: Path) -> Dict[str, Any]:
+def failed_proposal_cost(search_root: Path, db_file: Path) -> float:
+    """Spend on proposals that never reached evaluation (not in the programs table)."""
+    total = 0.0
+    for node in load_failed_proposal_nodes(search_root, db_file):
+        metadata = node.get("metadata") or {}
+        for key in COST_KEYS:
+            try:
+                total += float(metadata.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
+def compute_stats(db_file: Path, search_root: Path | None = None) -> Dict[str, Any]:
     with open_sqlite_readonly(db_file) as conn:
         row = conn.execute(STATS_QUERY).fetchone()
         best_gen = None
@@ -108,7 +124,9 @@ def compute_stats(db_file: Path) -> Dict[str, Any]:
         "gens_since_improvement": max_gen - best_gen
         if best_gen is not None
         else max_gen,
-        "total_cost": row["total_cost"] or 0,
+        # Same definition as the run page: every program plus failed proposals.
+        "total_cost": (row["total_cost"] or 0)
+        + (failed_proposal_cost(search_root, db_file) if search_root else 0.0),
         "total_runtime_seconds": total_runtime,
     }
     stats.update(_prompt_stats(results_dir_for(db_file) / "prompts.sqlite"))
@@ -128,7 +146,7 @@ def get_database_stats(ctx: ServerContext, query: Dict[str, str]) -> Response:
             ("stats", str(db_file)),
             db_file,
             lambda: with_retries(
-                lambda: compute_stats(db_file),
+                lambda: compute_stats(db_file, ctx.search_root),
                 attempts=3,
                 initial_delay=0.1,
                 description="stats read",

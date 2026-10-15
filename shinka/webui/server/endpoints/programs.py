@@ -39,10 +39,64 @@ def get_programs(ctx: ServerContext, query: Dict[str, str]) -> Response:
     return json_response(_programs_with_failures(ctx, db_file, summary=False))
 
 
+# Metadata the run page never reads from the summary; it fetches them per
+# program from /get_program_details instead. Logs dominate the payload of
+# real runs (tens of megabytes for a few thousand programs).
+HEAVY_METADATA_KEYS = (
+    "stdout_log",
+    "stderr_log",
+    "thought",
+    "patch_description",
+    "code_analysis_metrics",
+    "novelty_explanation",
+    "diff_summary",
+    "artifacts",
+)
+LLM_RESULT_KEEP = (
+    "model_name",
+    "cost",
+    "input_tokens",
+    "output_tokens",
+    "thinking_tokens",
+)
+FEEDBACK_LIMIT = 500
+
+
+def lighten_summary_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A copy of a summary row without logs, LLM text, or embedding projections."""
+    light = {
+        key: value
+        for key, value in row.items()
+        if key not in ("embedding_pca_2d", "embedding_pca_3d", "embedding", "code")
+    }
+    metadata = dict(row.get("metadata") or {})
+    for key in HEAVY_METADATA_KEYS:
+        metadata.pop(key, None)
+    llm = metadata.get("llm_result")
+    if isinstance(llm, dict):
+        metadata["llm_result"] = {k: llm[k] for k in LLM_RESULT_KEEP if k in llm}
+    light["metadata"] = metadata
+    feedback = light.get("text_feedback")
+    if isinstance(feedback, str) and len(feedback) > FEEDBACK_LIMIT:
+        light["text_feedback"] = feedback[:FEEDBACK_LIMIT] + "…"
+    return light
+
+
 def get_programs_summary(ctx: ServerContext, query: Dict[str, str]) -> Response:
-    """Every program without code or raw embeddings."""
+    """Every program without code or raw embeddings.
+
+    With ``light=1`` heavy metadata (logs, LLM text, code metrics) is dropped
+    as well; the advanced dashboard still uses the full summary.
+    """
     db_file = resolve_database(ctx.search_root, query["db_path"])
-    return json_response(_programs_with_failures(ctx, db_file, summary=True))
+    rows = _programs_with_failures(ctx, db_file, summary=True)
+    if query.get("light") in ("1", "true"):
+        rows = ctx.cache.get_or_compute(
+            ("summary-light", str(db_file)),
+            db_file,
+            lambda: [lighten_summary_row(row) for row in rows],
+        )
+    return json_response(rows)
 
 
 def get_program_count(ctx: ServerContext, query: Dict[str, str]) -> Response:

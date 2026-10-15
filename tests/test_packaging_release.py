@@ -72,6 +72,7 @@ def test_project_metadata_targets_pypi_release():
             "webui/*.html",
             "webui/*.png",
             "webui/*.jpg",
+            "webui/static/**/*",
         ]
     }
 

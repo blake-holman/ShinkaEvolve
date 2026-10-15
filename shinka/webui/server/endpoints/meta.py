@@ -60,10 +60,9 @@ def _meta_file(results_dir: Path, processed_count: int) -> Path:
 
 def get_meta_files(ctx: ServerContext, query: Dict[str, str]) -> Response:
     db_file = resolve_database(ctx.search_root, query["db_path"])
-    results_dir = results_dir_for(db_file)
-    if not meta_dir_for(results_dir).is_dir():
-        return json_response([])
-    return json_response(list_meta_files(results_dir))
+    # meta_dir_for falls back to the run directory, which always exists, so a
+    # run without meta files gets an empty list rather than an error.
+    return json_response(list_meta_files(results_dir_for(db_file)))
 
 
 def get_meta_content(ctx: ServerContext, query: Dict[str, str]) -> Response:

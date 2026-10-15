@@ -63,6 +63,14 @@ def test_landing_page_theme_matches_run_page():
 
     assert 'data-theme="light"' in html
     assert '[data-theme="dark"]' in html
-    assert '"shinkaTheme"' in html
+    assert 'import { initTheme, toggleTheme } from "./run/theme.js";' in html
     assert 'id="btn-theme"' in html
     assert "--bg-elev:" in html and "--fg-muted:" in html
+
+
+def test_landing_page_shares_formatting_with_run_page():
+    html = index_source()
+
+    assert 'from "./run/model.js";' in html
+    for helper in ("escapeHtml", "formatCost", "formatDuration", "formatAgo"):
+        assert f"function {helper}(" not in html

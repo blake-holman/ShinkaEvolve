@@ -9,8 +9,9 @@
 //       generations, total cost, runtime, failed proposals.
 //     - "Score by generation": Plotly line of bestSoFar per generation plus
 //       markers for every correct program's score (model.generations[].scores),
-//       hover shows generation and score. Use plotlyLayout() from theme.js and
-//       PLOTLY_CONFIG; re-render on theme change (onThemeChange).
+//       hover names the program and shows generation and score; clicking a
+//       point selects that program via onSelect. Use plotlyLayout() from
+//       theme.js and PLOTLY_CONFIG; re-render on theme change (onThemeChange).
 //     - "Cumulative cost": Plotly line of cumulativeCost per generation with
 //       bars for per-generation cost on a secondary axis.
 //     - "Scratchpad": the newest meta file (api.metaFiles then api.metaContent)
@@ -23,12 +24,20 @@
 // The DOM is built once per container and database and then updated in
 // place, so a refresh never flickers and never resets the scratchpad choice
 // or the open/closed state of the section.
-import { displayName, escapeHtml, formatCost, formatDuration, formatScore } from "./model.js";
+import { correctPercent, displayName, escapeHtml, formatCost, formatDuration, formatScore } from "./model.js";
 import { PLOTLY_CONFIG, currentTheme, onThemeChange, plotlyLayout, themeColors } from "./theme.js";
 
 const views = new WeakMap(); // container -> view
 const MAX_MARKDOWN_CHARS = 200000;
-let themeSubscription = null; // { view, unsubscribe } for the overview that is on screen
+/** How long the meta-file list is reused while the program count stays the same. */
+const META_LIST_INTERVAL_MS = 15000;
+/**
+ * Marker diameter shared by both score traces. In "closest" hover mode Plotly gives every
+ * marker of radius r a distance of at least 1 - 3/r, so 6 px markers (r = 3) all reach 0
+ * within 3 px of the cursor and the later trace wins the tie. With equal sizes the
+ * best-so-far marker under the cursor wins over a program marker drawn a few pixels away.
+ */
+const SCORE_MARKER_SIZE = 6;
 
 export async function renderOverview(container, { model, dbPath, api, onSelect }) {
     let view = views.get(container);
@@ -45,18 +54,18 @@ export async function renderOverview(container, { model, dbPath, api, onSelect }
     if (empty) return;
     renderCards(view, model);
     renderCharts(view, model);
-    subscribeTheme(view);
     await renderScratchpad(view, model, api, token);
 }
 
 // ---------- skeleton ----------
 
-function createView(container, dbPath) {
-    container.innerHTML = `
+function overviewHtml(dbPath) {
+    const path = escapeHtml(dbPath || "");
+    return `
         <div class="overview">
             <div class="overview__header">
                 <h2>Run overview</h2>
-                <span class="muted mono overview__path" title="${escapeHtml(dbPath || "")}">${escapeHtml(dbPath || "")}</span>
+                <span class="muted mono overview__path" title="${path}">${path}</span>
             </div>
             <div class="empty overview__empty" hidden>Waiting for the first program&hellip;</div>
             <div class="overview__body" hidden>
@@ -84,11 +93,15 @@ function createView(container, dbPath) {
                 </div>
             </div>
         </div>`;
+}
+
+function createView(container, dbPath) {
+    container.innerHTML = overviewHtml(dbPath);
     const root = container.firstElementChild;
     const q = (selector) => root.querySelector(selector);
     const view = {
-        root, dbPath, token: 0, onSelect: null, theme: null,
-        cardsHtml: null,
+        root, dbPath, token: 0, onSelect: null, api: null, model: null, theme: null,
+        cardsHtml: null, chartEventsBound: false,
         scratch: { files: [], selected: null, pinned: false, shown: null, optionsHtml: null, content: new Map(), listedCount: null, listedAt: 0 },
         el: {
             empty: q(".overview__empty"), body: q(".overview__body"), cards: q(".overview__cards"),
@@ -96,6 +109,16 @@ function createView(container, dbPath) {
             scratch: q(".overview__scratch"), select: q(".overview__select"), markdown: q(".markdown"),
         },
     };
+    bindControls(view);
+    observeView(view, container);
+    view.unsubscribeTheme = onThemeChange((theme) => {
+        // main.js re-renders on a theme change too; skip when that already repainted with this theme.
+        if (!view.destroyed && view.model && view.theme !== theme) renderCharts(view, view.model);
+    });
+    return view;
+}
+
+function bindControls(view) {
     view.el.cards.addEventListener("click", (event) => {
         const button = event.target.closest("[data-select]");
         if (button && view.onSelect) view.onSelect(button.dataset.select);
@@ -105,6 +128,9 @@ function createView(container, dbPath) {
         view.scratch.pinned = true;
         showScratchpad(view, view.api, ++view.token);
     });
+}
+
+function observeView(view, container) {
     // The divider does not fire a window resize, so watch the chart boxes themselves.
     view.resizeObserver = new ResizeObserver(() => {
         for (const gd of [view.el.score, view.el.cost]) {
@@ -115,9 +141,8 @@ function createView(container, dbPath) {
     view.resizeObserver.observe(view.el.score);
     view.resizeObserver.observe(view.el.cost);
     // Another panel (the program view) replaces the container's children; free the charts right away.
-    view.mutationObserver = new MutationObserver(() => { if (root.parentNode !== container) destroyView(view); });
+    view.mutationObserver = new MutationObserver(() => { if (view.root.parentNode !== container) destroyView(view); });
     view.mutationObserver.observe(container, { childList: true });
-    return view;
 }
 
 function destroyView(view) {
@@ -126,7 +151,7 @@ function destroyView(view) {
     view.token += 1;
     view.resizeObserver.disconnect();
     view.mutationObserver.disconnect();
-    if (themeSubscription && themeSubscription.view === view) { themeSubscription.unsubscribe(); themeSubscription = null; }
+    view.unsubscribeTheme();
     for (const gd of [view.el.score, view.el.cost]) if (gd._fullLayout) Plotly.purge(gd);
     if (view.root.parentNode) view.root.remove();
 }
@@ -146,15 +171,14 @@ function statCard(label, value, sub, { selectId = null, title = "" } = {}) {
 function renderCards(view, model) {
     const t = model.totals;
     const best = model.best;
-    const correctPct = t.programCount ? Math.round((100 * t.correctCount) / t.programCount) : 0;
     const cards = [
-        statCard("Programs", String(t.programCount), `${correctPct}% correct`),
+        statCard("Programs", String(t.programCount), `${correctPercent(t)}% correct`),
         best
             ? statCard("Best score", formatScore(best.combined_score), `generation ${best.generation} · ${displayName(best)}`,
                 { selectId: best.id, title: `Open ${displayName(best)}` })
             : statCard("Best score", "–", "no correct program yet"),
-        statCard("Generations", String(model.maxGeneration), null),
-        statCard("Total cost", formatCost(t.totalCost), null),
+        statCard("Generations", String(model.maxGeneration + 1), null),
+        statCard("Total cost", formatCost(t.totalCost), t.extraCost > 0 ? `includes prompt evolution ${formatCost(t.extraCost)}` : null),
         statCard("Runtime", formatDuration(t.runtimeSeconds), null),
     ];
     if (t.failedProposalCount > 0) cards.push(statCard("Failed proposals", String(t.failedProposalCount), "never reached evaluation"));
@@ -183,26 +207,54 @@ function generationAxis(base, maxGeneration, colors) {
     };
 }
 
-function scoreTraces(model, colors) {
-    const programX = [], programY = [];
+// Point customdata is [id, name, score text, generation]. Plotly reads tags such as <b> in
+// hover text, so names are escaped; it decodes numeric entities but not &quot;.
+function pointData(program, score) {
+    const name = escapeHtml(displayName(program)).replace(/&quot;/g, "&#34;");
+    return [program.id, name, formatScore(score), program.generation];
+}
+
+function programPoints(model) {
+    const x = [], y = [], customdata = [];
     for (const gen of model.generations) {
-        for (const score of gen.scores) { programX.push(gen.generation); programY.push(score); }
+        gen.scores.forEach((score, i) => {
+            x.push(gen.generation);
+            y.push(score);
+            customdata.push(pointData(model.programs.get(gen.scoredIds[i]), score));
+        });
     }
+    return { x, y, customdata };
+}
+
+/** Best-so-far line; each point carries the program that holds that score. */
+function bestSoFarPoints(model) {
+    let holder = null, holderScore = -Infinity;
+    const customdata = model.generations.map((gen) => {
+        // Strictly greater, so a tie keeps the earlier program, as model.best does.
+        if (gen.bestInGeneration !== null && gen.bestInGeneration > holderScore) {
+            holder = model.programs.get(gen.scoredIds[gen.scores.indexOf(gen.bestInGeneration)]);
+            holderScore = gen.bestInGeneration;
+        }
+        return holder ? pointData(holder, gen.bestSoFar) : null;
+    });
+    return { x: model.generations.map((g) => g.generation), y: model.generations.map((g) => g.bestSoFar), customdata };
+}
+
+function scoreTraces(model, colors) {
     return [
         {
             type: "scatter", mode: "markers", name: "Program",
-            x: programX, y: programY,
-            marker: { size: 6, color: colors.fgFaint, opacity: 0.75 },
-            hovertemplate: "gen %{x}: %{y:.4f}",
+            ...programPoints(model),
+            marker: { size: SCORE_MARKER_SIZE, color: colors.fgMuted },
+            hovertemplate: "%{customdata[1]}<br>gen %{x} · %{customdata[2]}<extra></extra>",
         },
         {
             type: "scatter", mode: "lines+markers", name: "Best so far",
-            x: model.generations.map((g) => g.generation),
-            y: model.generations.map((g) => g.bestSoFar),
+            ...bestSoFarPoints(model),
             connectgaps: false,
             line: { color: colors.accent, width: 2, shape: "linear" },
-            marker: { size: 7, color: colors.accent, line: { color: colors.bgElev, width: 1.5 } },
-            hovertemplate: "gen %{x}: %{y:.4f}",
+            marker: { size: SCORE_MARKER_SIZE, color: colors.accent, line: { color: colors.bgElev, width: 1.5 } },
+            hovertemplate: "Best so far: %{customdata[1]}<br>gen %{customdata[3]} · %{customdata[2]}<extra></extra>",
         },
     ];
 }
@@ -225,7 +277,7 @@ function costTraces(model, colors) {
         {
             type: "bar", name: "Per generation",
             x, y: model.generations.map((g) => g.cost),
-            marker: { color: colors.fgFaint, opacity: 0.6 },
+            marker: { color: colors.fgMuted },
             hovertemplate: "gen %{x}: $%{y:.4f}",
         },
         {
@@ -262,30 +314,42 @@ function renderCharts(view, model) {
     view.model = model;
     Plotly.react(view.el.score, scoreTraces(model, colors), scoreLayout(model, colors), PLOTLY_CONFIG);
     Plotly.react(view.el.cost, costTraces(model, colors), costLayout(model, colors), PLOTLY_CONFIG);
+    bindScoreChart(view);
 }
 
-function subscribeTheme(view) {
-    if (themeSubscription) themeSubscription.unsubscribe();
-    const unsubscribe = onThemeChange((theme) => {
-        // main.js re-renders on a theme change too; skip when that already repainted with this theme.
-        if (view.destroyed || !view.model || view.theme === theme) return;
-        renderCharts(view, view.model);
+/** Clicking a score point opens its program. Plotly adds gd.on during the first render. */
+function bindScoreChart(view) {
+    const gd = view.el.score;
+    if (view.chartEventsBound || typeof gd.on !== "function") return;
+    view.chartEventsBound = true;
+    const pointId = (event) => {
+        const point = event && event.points && event.points[0];
+        return point && Array.isArray(point.customdata) ? point.customdata[0] : null;
+    };
+    gd.on("plotly_click", (event) => {
+        const id = pointId(event);
+        if (id !== null && view.onSelect) view.onSelect(id);
     });
-    themeSubscription = { view, unsubscribe };
+    // Plotly's drag layer sets the cursor; show a pointer while a program point is under it.
+    const setCursor = (cursor) => {
+        const layer = gd.querySelector(".nsewdrag");
+        if (layer) layer.style.cursor = cursor;
+    };
+    gd.on("plotly_hover", (event) => setCursor(pointId(event) !== null ? "pointer" : ""));
+    gd.on("plotly_unhover", () => setCursor(""));
 }
 
 // ---------- scratchpad ----------
 
 /**
  * The list is refetched when the program count changed or after an interval, so the
- * frequent re-renders (clicks, polls) do not hammer the server; a run without a
- * meta directory answers 404, which the browser logs, so that case backs off further.
+ * frequent re-renders (clicks, polls) do not hammer the server. A run without meta
+ * files gets an empty list.
  */
 function shouldListMetaFiles(view, model) {
     const s = view.scratch;
-    const interval = s.files.length ? 15000 : 60000;
     const count = model.totals.programCount + model.totals.failedProposalCount;
-    if (s.listedCount === count && Date.now() - s.listedAt < interval) return false;
+    if (s.listedCount === count && Date.now() - s.listedAt < META_LIST_INTERVAL_MS) return false;
     s.listedCount = count;
     s.listedAt = Date.now();
     return true;

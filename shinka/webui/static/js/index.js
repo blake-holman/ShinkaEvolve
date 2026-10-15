@@ -2,11 +2,13 @@
 //
 // Stats are fetched lazily per visible row from /get_database_stats and cached;
 // the list is re-read every REFRESH_SECONDS and stale stats are refetched in place.
+// Formatting and theme helpers are shared with the run page so both pages read the same.
+
+import { escapeHtml, formatAgo, formatCost, formatDuration, formatScore, formatTimestamp, runStatus } from "./run/model.js";
+import { initTheme, toggleTheme } from "./run/theme.js";
 
 const REFRESH_SECONDS = 30;
-const ACTIVE_WINDOW_SECONDS = 300;
 const STATS_BATCH = 5;
-const THEME_KEY = "shinkaTheme";
 
 const state = {
     runs: [], // {task, name, path, label}
@@ -27,75 +29,6 @@ const el = {
     btnTheme: document.getElementById("btn-theme"),
 };
 
-// ---------- theme (same mechanism and storage key as run.css / run/theme.js) ----------
-
-function initTheme() {
-    let theme = null;
-    try { theme = localStorage.getItem(THEME_KEY); } catch (_) { /* private mode */ }
-    if (theme !== "light" && theme !== "dark") {
-        theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    }
-    document.documentElement.setAttribute("data-theme", theme);
-}
-
-function toggleTheme() {
-    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    try { localStorage.setItem(THEME_KEY, next); } catch (_) { /* private mode */ }
-}
-
-// ---------- formatting (mirrors run/model.js so both pages read the same) ----------
-
-function escapeHtml(text) {
-    return String(text ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function formatScore(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "–";
-    if (Math.abs(n) >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-    if (Math.abs(n) >= 10) return n.toFixed(2);
-    return n.toFixed(4).replace(/0+$/, "").replace(/\.$/, ".0");
-}
-
-function formatCost(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "–";
-    if (n === 0) return "$0";
-    if (n < 0.01) return `$${n.toFixed(4)}`;
-    if (n < 1) return `$${n.toFixed(3)}`;
-    return `$${n.toFixed(2)}`;
-}
-
-function formatDuration(seconds) {
-    const s = seconds === null || seconds === undefined ? NaN : Number(seconds);
-    if (!Number.isFinite(s) || s < 0) return "–";
-    if (s < 60) return `${Math.round(s)}s`;
-    if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
-    if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-    return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
-}
-
-function formatAgo(seconds) {
-    const s = Number(seconds);
-    if (!Number.isFinite(s)) return "–";
-    if (s < 5) return "just now";
-    if (s < 60) return `${Math.round(s)}s ago`;
-    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-    return `${Math.floor(s / 86400)} d ago`;
-}
-
-function formatTimestamp(seconds) {
-    const n = Number(seconds);
-    return Number.isFinite(n) ? new Date(n * 1000).toLocaleString() : "";
-}
-
 // ---------- cells ----------
 
 const LOADING = `<span class="faint">…</span>`;
@@ -103,33 +36,51 @@ const LOADING = `<span class="faint">…</span>`;
 function statusCell(stats) {
     if (stats.error) return `<span class="pill pill--bad" title="${escapeHtml(stats.error)}">error</span>`;
     if (!stats.program_count) return `<span class="pill pill--warn" title="The database has no programs">empty</span>`;
-    const age = Date.now() / 1000 - Number(stats.last_update);
-    return Number.isFinite(age) && age <= ACTIVE_WINDOW_SECONDS
+    return runStatus(stats.last_update, Date.now() / 1000) === "active"
         ? `<span class="pill pill--ok" title="A program was added in the last five minutes">active</span>`
         : `<span class="pill" title="No new program in the last five minutes">idle</span>`;
 }
 
 const DASH = `<span class="muted">–</span>`;
 
+function bestCell(stats) {
+    if (stats.best_score === null || stats.best_score === undefined) return `<span class="muted">none</span>`;
+    const gen = stats.best_generation;
+    const genText = gen === null || gen === undefined ? "" : ` <span class="muted">gen ${escapeHtml(gen)}</span>`;
+    return formatScore(stats.best_score) + genText;
+}
+
+/** Same total as the run page: programs and failed proposals (server total_cost) plus prompt evolution. */
+function costCell(stats) {
+    const programs = Number(stats.total_cost) || 0;
+    const extra = Number(stats.prompt_evo_cost) || 0;
+    const title = extra
+        ? `Programs ${formatCost(programs)} + prompt evolution ${formatCost(extra)}`
+        : "LLM, embedding, novelty, and meta cost of every program";
+    return `<span title="${escapeHtml(title)}">${formatCost(programs + extra)}</span>`;
+}
+
+function updatedCell(stats) {
+    const last = Number(stats.last_update);
+    if (stats.last_update === null || stats.last_update === undefined || !Number.isFinite(last)) return DASH;
+    return `<span title="${escapeHtml(formatTimestamp(last))}">${escapeHtml(formatAgo(Date.now() / 1000 - last))}</span>`;
+}
+
 function statsCells(stats) {
     const status = statusCell(stats);
     if (stats.error) return { status, best_score: DASH, generations: DASH, programs: DASH, cost: DASH, runtime: DASH, updated: DASH };
-    if (!stats.program_count) return { status, best_score: DASH, generations: DASH, programs: "0", cost: DASH, runtime: DASH, updated: DASH };
-    const gen = stats.best_generation;
-    const best = stats.best_score === null || stats.best_score === undefined
-        ? `<span class="muted">none</span>`
-        : `${formatScore(stats.best_score)}${gen !== null && gen !== undefined ? ` <span class="muted">gen ${escapeHtml(gen)}</span>` : ""}`;
-    const cost = (Number(stats.total_cost) || 0) + (Number(stats.prompt_evo_cost) || 0);
+    const lastGeneration = Number(stats.max_generation);
     return {
         status,
-        best_score: best,
-        generations: escapeHtml(stats.max_generation ?? "–"),
-        programs: `${escapeHtml(stats.program_count)} <span class="muted">${Number(stats.correct_count) || 0} correct</span>`,
-        cost: formatCost(cost),
+        best_score: stats.program_count ? bestCell(stats) : DASH,
+        // Generations are numbered from 0, so the count is the last number plus one.
+        generations: stats.program_count && Number.isFinite(lastGeneration) ? String(lastGeneration + 1) : DASH,
+        programs: stats.program_count
+            ? `${escapeHtml(stats.program_count)} <span class="muted">${Number(stats.correct_count) || 0} correct</span>`
+            : "0",
+        cost: costCell(stats),
         runtime: formatDuration(stats.total_runtime_seconds),
-        updated: stats.last_update
-            ? `<span title="${escapeHtml(formatTimestamp(stats.last_update))}">${formatAgo(Date.now() / 1000 - stats.last_update)}</span>`
-            : DASH,
+        updated: updatedCell(stats),
     };
 }
 
@@ -166,7 +117,12 @@ function headerRow(task, taskId, count, collapsed) {
     const row = document.createElement("tr");
     row.className = "task-header" + (collapsed ? " is-collapsed" : "");
     row.dataset.taskId = taskId;
-    row.innerHTML = `<td colspan="8"><span class="task-header__toggle" aria-hidden="true">&#9662;</span>${escapeHtml(task)}<span class="pill task-header__count">${count}</span></td>`;
+    row.title = `${task} (${count} ${count === 1 ? "run" : "runs"})`;
+    // Only the name span truncates; the toggle and the run-count pill stay visible.
+    row.innerHTML = `<td colspan="8"><div class="task-header__line">
+        <span class="task-header__toggle" aria-hidden="true">&#9662;</span>
+        <span class="task-header__name">${escapeHtml(task)}</span>
+        <span class="pill task-header__count">${count}</span></div></td>`;
     row.addEventListener("click", () => toggleTask(taskId));
     return row;
 }

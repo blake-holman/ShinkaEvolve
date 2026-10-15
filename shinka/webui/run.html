@@ -14,7 +14,7 @@
         <div class="status__name" id="status-name">Loading run&hellip;</div>
         <div class="status__items" id="status-items"></div>
         <div class="status__actions">
-            <button class="btn" id="btn-run" title="Show the run overview (score, cost, scratchpad)">Run overview</button>
+            <button class="btn" id="btn-run" title="Show the run overview: score, cost, scratchpad (Esc)">Run overview</button>
             <a class="btn" id="link-advanced" href="#" title="Open the full dashboard with every tab">Advanced</a>
             <button class="btn btn--icon" id="btn-theme" title="Switch between light and dark theme" aria-label="Toggle theme">&#9680;</button>
         </div>
@@ -25,17 +25,20 @@
             <div class="pane__toolbar" id="tree-toolbar">
                 <span class="muted" id="tree-summary"></span>
                 <span class="spacer"></span>
-                <button class="btn btn--small" id="btn-best" title="Select the best program">Best</button>
+                <button class="btn btn--small" id="btn-best" title="Select the best program (B)">Best</button>
                 <button class="btn btn--small" id="btn-expand" title="Show every program">Expand all</button>
-                <button class="btn btn--small" id="btn-collapse" title="Show only the best lineage">Collapse</button>
-                <button class="btn btn--small" id="btn-fit" title="Fit the tree to the pane">Fit</button>
+                <button class="btn btn--small" id="btn-collapse" title="Show only the best and newest lineages">Collapse</button>
+                <button class="btn btn--small" id="btn-fit" title="Fit the tree to the pane at a readable size, showing the newest generations (F, or double-click the background). W shows the whole run.">Fit</button>
             </div>
-            <div id="tree" class="tree"></div>
+            <div id="tree" class="tree" tabindex="0" aria-label="Program tree. Arrow keys move between programs."></div>
             <div id="tree-legend" class="legend">
                 <span class="legend__item"><span class="swatch swatch--scale"></span>score (low &rarr; high)</span>
                 <span class="legend__item"><span class="swatch swatch--best"></span>best</span>
-                <span class="legend__item"><span class="swatch swatch--failed"></span>failed</span>
                 <span class="legend__item"><span class="swatch swatch--lineage"></span>best lineage</span>
+                <span class="legend__item"><span class="swatch swatch--incorrect"></span>incorrect</span>
+                <span class="legend__item"><span class="swatch swatch--proposal"></span>failed proposal</span>
+                <span class="legend__item"><span class="swatch swatch--unscored"></span>no score</span>
+                <span class="legend__hint">scroll to zoom &middot; drag to pan &middot; arrows move &middot; B best &middot; F fit &middot; W whole run &middot; Esc overview</span>
             </div>
         </section>
         <div id="divider" class="divider" role="separator" aria-orientation="vertical"></div>

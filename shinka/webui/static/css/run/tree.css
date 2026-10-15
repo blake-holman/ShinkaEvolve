@@ -1,24 +1,31 @@
 /* Styles for static/js/run/tree.js. Use the tokens defined in run.css. */
 
-.tree--d3 { --tree-css: loaded; outline: none; }
-.tree--d3:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.tree--d3 { --tree-css: loaded; }
 
 .tree-svg { cursor: grab; user-select: none; }
 .tree-svg:active { cursor: grabbing; }
 
 .tree-grid line { stroke: var(--border); stroke-opacity: 0.6; vector-effect: non-scaling-stroke; }
 
-.tree-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.2; }
+.tree-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .tree-edge.is-lineage { stroke: var(--lineage); stroke-width: 2.5; }
 .tree-edge.is-failed { stroke: var(--bad); stroke-opacity: 0.5; stroke-dasharray: 3 3; }
 
 .tree-node { cursor: pointer; }
-.tree-dot { stroke: var(--bg-elev); stroke-width: 1.5; }
+/* tree.js updateGlyphs() sets these variables on .tree-nodes for every zoom level,
+   so dots, rings and pills keep a readable size on screen when the tree is zoomed out. */
+.tree-dot, .tree-ring { transform: scale(var(--tree-node-scale, 1)); }
+.tree-pill { transform: translateX(var(--tree-pill-x, 7px)) scale(var(--tree-pill-scale, 1)); }
+/* Dot outlines keep their screen width at every zoom, so the lightest and darkest
+   viridis fills stay visible against the pane in both themes (--fg-faint is above 3:1 on --bg). */
+.tree-dot { stroke: var(--fg-faint); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tree-dot.is-unscored { fill: var(--fg-faint); }
+/* These two match .swatch--incorrect and .swatch--proposal in the legend. */
+.tree-dot.is-incorrect { fill: var(--bad-bg); stroke: var(--bad); stroke-width: 1.5; }
+.tree-dot.is-failed { fill: var(--bg); stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 3 2; }
 .tree-node:hover .tree-dot { stroke: var(--fg); }
-.tree-dot.is-incorrect { fill: var(--bad-bg); stroke: var(--bad); }
-.tree-dot.is-failed { fill: var(--bg); stroke: var(--bad); stroke-dasharray: 2.5 2; }
 
-.tree-ring { fill: none; pointer-events: none; }
+.tree-ring { fill: none; pointer-events: none; vector-effect: non-scaling-stroke; }
 .tree-ring--best { stroke: var(--best); stroke-width: 2.5; }
 .tree-ring--selected { stroke: var(--select); stroke-width: 3; }
 
@@ -28,16 +35,13 @@
 .tree-pill text { font: 600 10px var(--font); fill: var(--fg-muted); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 .tree-pill:hover .tree-pill__box { fill: var(--bg-sunken); stroke: var(--accent); }
 .tree-pill:hover text { fill: var(--fg); }
-.tree-pill--less { opacity: 0; }
-.tree-node:hover .tree-pill--less { opacity: 1; }
 
 .tree-axis { pointer-events: none; }
 .tree-axis__bg { fill: var(--bg); fill-opacity: 0.92; }
 .tree-axis text { font-size: var(--fs-xs); fill: var(--fg-muted); text-anchor: middle; font-variant-numeric: tabular-nums; }
 
 .tree-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-.tree-empty[hidden], .tree-tooltip[hidden] { display: none; }
 
 .tree-tooltip { line-height: 1.4; }
-.tree-tooltip__name { font-weight: 600; }
-.tree-tooltip__fail { color: var(--bad); word-break: break-word; }
+.tree-tooltip__name { font-weight: 600; overflow-wrap: anywhere; }
+.tree-tooltip__fail { color: var(--bad); overflow-wrap: anywhere; }

@@ -1,5 +1,5 @@
 /* Run page: design tokens, layout, and shared components.
-   Module-specific rules live in run/*.css and are imported at the end. */
+   Module-specific rules live in run/*.css (imported first, as CSS requires). */
 
 @import url("run/tree.css");
 @import url("run/program.css");
@@ -13,7 +13,7 @@
     --bg-sunken: #eef0f3;
     --fg: #1f2328;
     --fg-muted: #636c76;
-    --fg-faint: #8c959f;
+    --fg-faint: #6e7781;
     --border: #d9dee3;
     --border-strong: #b8c0c8;
     --accent: #0969da;
@@ -51,7 +51,7 @@
 [data-theme="dark"] {
     --bg: #0d1117;
     --bg-elev: #161b22;
-    --bg-sunken: #010409;
+    --bg-sunken: #21262d;
     --fg: #e6edf3;
     --fg-muted: #9198a1;
     --fg-faint: #6e7681;
@@ -95,7 +95,7 @@ a:hover { text-decoration: underline; }
 .muted { color: var(--fg-muted); }
 .faint { color: var(--fg-faint); }
 .spacer { flex: 1; }
-.hidden { display: none !important; }
+.hidden, [hidden] { display: none !important; }
 
 /* ---------- status strip ---------- */
 .status {
@@ -108,12 +108,13 @@ a:hover { text-decoration: underline; }
     border-bottom: 1px solid var(--border);
 }
 .status__back { white-space: nowrap; color: var(--fg-muted); }
-.status__name { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32ch; }
-.status__items { display: flex; gap: var(--sp-5); flex: 1; min-width: 0; overflow: hidden; }
-.status__item { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
+.status__name { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 10ch; max-width: 40%; }
+/* One row high: items that wrap onto a second row are hidden whole, lowest priority last. */
+.status__items { display: flex; flex-wrap: wrap; align-content: flex-start; column-gap: var(--sp-5); row-gap: var(--status-h); flex: 1 1 0; min-width: 0; height: 34px; overflow: hidden; }
+.status__item { display: flex; flex-direction: column; justify-content: center; height: 34px; line-height: 1.15; white-space: nowrap; }
 .status__label { font-size: var(--fs-xs); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .status__value { font-size: var(--fs); font-variant-numeric: tabular-nums; }
-.status__actions { display: flex; gap: var(--sp-2); align-items: center; }
+.status__actions { display: flex; gap: var(--sp-2); align-items: center; flex: 0 0 auto; }
 
 /* ---------- layout ---------- */
 .layout {
@@ -129,6 +130,7 @@ a:hover { text-decoration: underline; }
 
 .pane__toolbar {
     height: var(--toolbar-h);
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: var(--sp-2);
@@ -137,15 +139,22 @@ a:hover { text-decoration: underline; }
     background: var(--bg-elev);
     font-size: var(--fs-sm);
 }
+#tree-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.tree:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tree svg { width: 100%; height: 100%; display: block; }
 
 .legend {
     position: absolute;
     left: var(--sp-3);
+    right: var(--sp-3);
     bottom: var(--sp-3);
+    width: fit-content;
+    max-width: calc(100% - 2 * var(--sp-3));
     display: flex;
-    gap: var(--sp-4);
+    flex-wrap: wrap;
+    column-gap: var(--sp-4);
+    row-gap: var(--sp-1);
     padding: var(--sp-1) var(--sp-3);
     background: var(--bg-elev);
     border: 1px solid var(--border);
@@ -154,11 +163,14 @@ a:hover { text-decoration: underline; }
     color: var(--fg-muted);
     pointer-events: none;
 }
-.legend__item { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.legend__item { display: inline-flex; align-items: center; gap: var(--sp-1); white-space: nowrap; }
+.legend__hint { color: var(--fg-faint); white-space: nowrap; }
 .swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1px solid var(--border-strong); }
 .swatch--scale { background: linear-gradient(90deg, #440154, #21918c, #fde725); border-radius: 3px; width: 28px; }
 .swatch--best { background: var(--best); }
-.swatch--failed { background: var(--bad-bg); border-color: var(--bad); }
+.swatch--incorrect { background: var(--bad-bg); border: 1.5px solid var(--bad); }
+.swatch--proposal { background: transparent; border: 1.5px dashed var(--bad); }
+.swatch--unscored { background: var(--fg-faint); }
 .swatch--lineage { background: var(--lineage); border-radius: 2px; height: 3px; width: 18px; border: 0; }
 
 /* ---------- components ---------- */
@@ -195,6 +207,8 @@ a:hover { text-decoration: underline; }
 .pill--bad { background: var(--bad-bg); color: var(--bad); }
 .pill--warn { background: var(--warn-bg); color: var(--warn); }
 .pill--accent { background: var(--accent); color: var(--accent-fg); }
+/* "best" looks the same everywhere: gold, like the ring in the tree and the legend swatch. */
+.pill--best { background: var(--best); color: #1f2328; }
 
 .card {
     background: var(--bg-elev);
@@ -202,11 +216,11 @@ a:hover { text-decoration: underline; }
     border-radius: var(--radius);
     padding: var(--sp-3) var(--sp-4);
 }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-3); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--sp-3); }
 .stat { display: flex; flex-direction: column; gap: 2px; }
 .stat__label { font-size: var(--fs-xs); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .stat__value { font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
-.stat__sub { font-size: var(--fs-sm); color: var(--fg-muted); }
+.stat__sub { font-size: var(--fs-sm); color: var(--fg-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--sp-1) var(--sp-4); margin: 0; font-size: var(--fs-sm); }
 .kv dt { color: var(--fg-muted); margin: 0; }

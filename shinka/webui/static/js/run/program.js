@@ -18,31 +18,42 @@
 //       added lines on --diff-add-bg, removed on --diff-del-bg, with a
 //       "changes only" option that keeps 3 lines of context. Copy button.
 //     - Collapsible <details class="section"> blocks, open by default only for
-//       "Evaluation": text_feedback, stdout_log, stderr_log (from
-//       program.metadata), plot images from api.plots(dbPath, generation, id)
+//       "Evaluation": text_feedback, stdout_log, stderr_log (from the details
+//       response; the summary row is light and has no logs or LLM text), plot
+//       images from api.plots(dbPath, generation, id)
 //       using api.plotUrl(path). Closed by default: "LLM response"
 //       (metadata.thought, patch_description, llm_result.content or msg; show
 //       tokens and cost from llm_result) and "Details" (a .kv list of
 //       island, timestamp, complexity, public and private metrics, inspiration
 //       ids as links calling onSelect, attempt counters, timings).
 //     - Failed proposals: no diff toggle, show failureText prominently, and
-//       the generated code when details.code is present.
+//       the generated code when details.code is present. Incorrect programs
+//       show the same banner (plus the telling stderr line) and no score.
 //     - Re-render on refresh must not lose an open diff toggle or scroll
-//       position when the same program is still selected (compare program.id).
+//       position when the same program is still selected (compare dbPath and
+//       program.id), and must not re-run highlight.js or the diff.
 //     - Everything user-visible is passed through escapeHtml except
 //       highlighted code and the diff, which are built from escaped text.
 import {
-    displayName, modelName, patchType, failureText, isFailedProposal, programCost, scoreDelta,
-    formatScore, formatDelta, formatCost, formatDuration, formatTimestamp, escapeHtml,
+    displayName, modelName, patchWords, failureText, isFailedProposal, isCorrect, parentOf, programCost,
+    scoreDelta, deltaClass, formatScore, formatDelta, formatCost, formatDuration, formatTimestamp, escapeHtml,
 } from "./model.js";
 
 const LOG_CAP = 20000;          // characters rendered per log
 const HIGHLIGHT_CAP = 200000;   // characters above which code is shown without highlighting
 const CONTEXT_LINES = 3;
-const PATCH_WORDS = { init: "Initial program", diff: "Diff patch", full: "Full rewrite", cross: "Crossover" };
+const FAILURE_TEXT_MAX = 500;   // characters of the failure reason in the header banner
+const FAILURE_LINES_MAX = 6;    // lines of the failure reason in the header banner
+const STDERR_LINE_MAX = 300;    // characters of the stderr line in the header banner
+const COPY_FLASH_MS = 1500;
+const SHORT_ID_HEAD = 8;        // characters kept when a long id is shortened
+const VIEW_STATE_MAX = 500;     // per-program view states kept; the oldest is dropped first
+const RENDER_CACHE_MAX = 12;    // highlighted code and diff tables kept for re-renders
 const SECTIONS = [["evaluation", "Evaluation", true], ["llm", "LLM response", false], ["details", "Details", false]];
+const COST_PARTS = "LLM + embedding + novelty + meta";
 
-const viewStates = new Map();       // program id -> { mode, changesOnly, open }
+const viewStates = new Map();       // `${dbPath}\0${id}` -> { mode, changesOnly, open }
+const renderCache = new Map();      // `${kind}\0${dbPath}\0${id}` -> { inputs, html }
 const contexts = new WeakMap();     // panel root element -> render context
 const lastHtml = new WeakMap();     // section element -> html it was last filled with
 const boundContainers = new WeakSet();
@@ -50,9 +61,10 @@ const boundContainers = new WeakSet();
 export async function renderProgram(container, args) {
     const { program, dbPath, api } = args;
     bindOnce(container);
-    const state = viewStateFor(program.id);
+    const state = viewStateFor(viewKey(dbPath, program.id));
     let root = container.querySelector(":scope > .program");
-    const previous = root && root.dataset.programId === String(program.id) ? contexts.get(root) : null;
+    const prior = root ? contexts.get(root) : null;
+    const previous = prior && prior.dbPath === dbPath && prior.program.id === program.id ? prior : null;
     if (!previous) {
         container.innerHTML = skeletonHtml(program, state);
         container.scrollTop = 0;
@@ -63,13 +75,12 @@ export async function renderProgram(container, args) {
     contexts.set(root, ctx);
     renderAll(root, ctx);
 
-    const hasParent = program.parent_id !== null && program.parent_id !== undefined;
     try {
-        const parentPromise = hasParent && !isFailedProposal(program)
+        const parentPromise = hasParent(program) && !isFailedProposal(program)
             ? api.programDetails(dbPath, program.parent_id).catch((error) => ({ error }))
             : null;
         const details = await api.programDetails(dbPath, program.id);
-        // The details cache is cleared on refresh, so a new object means the run changed; refetch plots then.
+        // main.js drops cached details only for rows that changed, so the same object means the program did not change.
         const unchanged = previous && previous.data && previous.data.details === details;
         const plots = unchanged ? previous.data.plots : await api.plots(dbPath, program.generation, program.id).catch(() => []);
         ctx.data = { details, parentDetails: await parentPromise, plots };
@@ -80,13 +91,34 @@ export async function renderProgram(container, args) {
     renderAll(root, ctx);
 }
 
-function viewStateFor(id) {
-    if (!viewStates.has(id)) {
-        viewStates.set(id, { mode: "code", changesOnly: true, open: Object.fromEntries(SECTIONS.map(([key, , open]) => [key, open])) });
-    }
-    return viewStates.get(id);
+function viewKey(dbPath, id) {
+    return `${dbPath}\u0000${id}`;
 }
 
+function hasParent(program) {
+    return program.parent_id !== null && program.parent_id !== undefined && program.parent_id !== "";
+}
+
+/** Per-program view state, most recently used last so the oldest can be dropped. */
+function viewStateFor(key) {
+    let state = viewStates.get(key);
+    if (state) viewStates.delete(key);
+    else state = { mode: "code", changesOnly: true, open: Object.fromEntries(SECTIONS.map(([name, , open]) => [name, open])) };
+    viewStates.set(key, state);
+    if (viewStates.size > VIEW_STATE_MAX) viewStates.delete(viewStates.keys().next().value);
+    return state;
+}
+
+/** Reuse HTML built from identical inputs, so refreshes do not re-run highlight.js or the diff. */
+function memo(kind, ctx, inputs, build) {
+    const key = `${kind}\u0000${viewKey(ctx.dbPath, ctx.program.id)}`;
+    const hit = renderCache.get(key);
+    renderCache.delete(key);
+    const html = hit && hit.inputs.every((value, i) => value === inputs[i]) ? hit.html : build();
+    renderCache.set(key, { inputs, html });
+    if (renderCache.size > RENDER_CACHE_MAX) renderCache.delete(renderCache.keys().next().value);
+    return html;
+}
 
 function skeletonHtml(program, state) {
     const sections = SECTIONS.map(([key, title]) =>
@@ -99,15 +131,18 @@ function skeletonHtml(program, state) {
         </div>${sections}</div>`;
 }
 
+/**
+ * The summary row is light: logs, LLM text and code metrics come only from the
+ * details response, so those sections wait for it. The header renders at once.
+ */
 function renderAll(root, ctx) {
     const details = ctx.data && ctx.data.details;
-    const row = details ? { ...ctx.program, ...details, children: ctx.program.children } : ctx.program;
-    setSection(root, "header", headerHtml(ctx, row));
+    setSection(root, "header", headerHtml(ctx, details));
     setSection(root, "toolbar", toolbarHtml(ctx));
     setSection(root, "code", codeAreaHtml(ctx));
-    setSection(root, "evaluation", evaluationHtml(ctx, row));
-    setSection(root, "llm", llmHtml(row));
-    setSection(root, "details", detailsHtml(ctx, row));
+    setSection(root, "evaluation", details ? evaluationHtml(ctx, details) : pendingHtml(ctx, "evaluation output"));
+    setSection(root, "llm", details ? llmHtml(ctx.program, details) : pendingHtml(ctx, "LLM response"));
+    setSection(root, "details", detailsHtml(ctx, details));
 }
 
 /** Replace a section's content only when it changed, so refreshes do not flicker or reset scroll. */
@@ -117,6 +152,11 @@ function setSection(root, key, html) {
     if (lastHtml.get(target) === html) return;
     lastHtml.set(target, html);
     target.innerHTML = html;
+}
+
+function pendingHtml(ctx, what) {
+    if (ctx.data && ctx.data.error) return `<p class="muted">Could not load the ${escapeHtml(what)}.</p>`;
+    return `<p class="muted">Loading…</p>`;
 }
 
 // ---------- events ----------
@@ -183,7 +223,7 @@ async function copyText(button, text) {
             area.remove();
         }
         flash(button, "Copied");
-    } catch (_) {
+    } catch {
         flash(button, "Copy failed");
     }
 }
@@ -192,7 +232,7 @@ function flash(button, label) {
     if (!button.dataset.label) button.dataset.label = button.textContent;
     button.textContent = label;
     clearTimeout(button.flashTimer);
-    button.flashTimer = setTimeout(() => { button.textContent = button.dataset.label; }, 1500);
+    button.flashTimer = setTimeout(() => { button.textContent = button.dataset.label; }, COPY_FLASH_MS);
 }
 
 /** What the toolbar Copy button copies: the code, or the unified diff in diff mode. */
@@ -202,73 +242,60 @@ function currentText(ctx) {
     if (code === null || code === undefined) return "";
     const parent = data.parentDetails;
     if (state.mode === "diff" && parent && !parent.error && parent.code !== null && parent.code !== undefined) {
-        return Diff.createTwoFilesPatch(String(program.parent_id), String(program.id), String(parent.code), String(code));
+        return Diff.createTwoFilesPatch(String(program.parent_id), String(program.id), normaliseEol(String(parent.code)), normaliseEol(String(code)));
     }
     return String(code);
 }
 
 // ---------- header and toolbar ----------
 
-function headerHtml(ctx, row) {
+function headerHtml(ctx, details) {
     const { model, program } = ctx;
-    const parent = parentOf(model, program);
-    const failed = isFailedProposal(program);
+    const correct = isCorrect(program);
     const pills = [
         `<span class="pill">Generation ${escapeHtml(program.generation ?? "?")}</span>`,
         statusPill(program),
-        model.best && model.best.id === program.id ? `<span class="pill pill--accent" title="Highest score in the run">best</span>` : "",
-        patchPill(program),
+        model.best && model.best.id === program.id ? `<span class="pill pill--best" title="Highest score in the run">best</span>` : "",
+        patchWords(program) ? `<span class="pill" title="Patch type">${escapeHtml(patchWords(program))}</span>` : "",
     ].filter(Boolean).join("");
     const island = program.island_idx === null || program.island_idx === undefined ? "" : fact("Island", escapeHtml(program.island_idx));
     const facts = [
-        failed ? "" : fact("Score", scoreHtml(program, parent)),
+        correct ? fact("Score", scoreHtml(program, parentOf(model, program))) : "",
         fact("Model", escapeHtml(modelName(program) || "")),
-        fact("Cost", escapeHtml(formatCost(programCost(program)))),
+        fact("Total cost", escapeHtml(formatCost(programCost(program))), COST_PARTS),
         island,
     ].join("");
     const children = Array.isArray(program.children) ? program.children.length : Number(program.children_count) || 0;
-    return `<h2 class="program__name">${escapeHtml(displayName(row))}</h2>
+    return `<h2 class="program__name">${escapeHtml(displayName(program))}</h2>
         <div class="program__facts">${pills}${facts}</div>
         <div class="program__links">${parentHtml(model, program)}<span class="program__sep">·</span>Children: ${children}</div>
-        ${failed ? failureHtml(program) : ""}`;
+        ${correct ? "" : failureHtml(program, details)}`;
 }
 
-function fact(label, valueHtml) {
+function fact(label, valueHtml, title = "") {
     if (!valueHtml) return "";
-    return `<span class="program__fact"><span class="program__fact-label">${label}</span> <strong>${valueHtml}</strong></span>`;
+    const tip = title ? ` title="${escapeHtml(title)}"` : "";
+    return `<span class="program__fact"${tip}><span class="program__fact-label">${escapeHtml(label)}</span> <strong>${valueHtml}</strong></span>`;
 }
 
 function statusPill(program) {
-    if (isFailedProposal(program)) return `<span class="pill pill--bad" title="${escapeHtml(failureText(program))}">failed</span>`;
-    if (!program.correct) return `<span class="pill pill--bad" title="${escapeHtml(failureText(program))}">incorrect</span>`;
+    if (isFailedProposal(program)) return `<span class="pill pill--bad" title="The proposal failed before it could be evaluated">failed</span>`;
+    if (!isCorrect(program)) return `<span class="pill pill--bad" title="The evaluation marked this program incorrect">incorrect</span>`;
     return `<span class="pill pill--ok">correct</span>`;
 }
 
-function patchPill(program) {
-    const type = patchType(program);
-    if (!type) return "";
-    return `<span class="pill" title="Patch type">${escapeHtml(PATCH_WORDS[type] || type)}</span>`;
-}
-
 function scoreHtml(program, parent) {
-    let html = escapeHtml(formatScore(program.combined_score));
+    const score = formatScore(program.combined_score);
+    let html = score === "–" ? `<span title="No score was recorded">–</span>` : escapeHtml(score);
     const delta = scoreDelta(program, parent);
-    if (delta !== null) {
-        const cls = delta > 0 ? "delta--up" : delta < 0 ? "delta--down" : "delta--flat";
-        html += ` <span class="${cls}" title="Change versus the parent">${escapeHtml(formatDelta(delta))}</span>`;
-    }
+    if (delta !== null) html += ` <span class="${deltaClass(delta)}" title="Change versus the parent">${escapeHtml(formatDelta(delta))}</span>`;
     return html;
-}
-
-function parentOf(model, program) {
-    if (program.parent_id === null || program.parent_id === undefined) return null;
-    return model.programs.get(program.parent_id) || null;
 }
 
 function parentHtml(model, program) {
     const parent = parentOf(model, program);
     if (parent) return `Parent: ${selectButton(parent)}`;
-    if (program.parent_id !== null && program.parent_id !== undefined) {
+    if (hasParent(program)) {
         return `Parent: <span class="mono" title="${escapeHtml(program.parent_id)}">${escapeHtml(shortId(program.parent_id))}</span> <span class="faint">(not in this run)</span>`;
     }
     return `Parent: <span class="muted">none</span>`;
@@ -280,22 +307,51 @@ function selectButton(program) {
 
 function shortId(id) {
     const text = String(id);
-    return text.length > 12 ? `${text.slice(0, 8)}…` : text;
+    return text.length > SHORT_ID_HEAD + 4 ? `${text.slice(0, SHORT_ID_HEAD)}…` : text;
 }
 
-function failureHtml(program) {
-    const m = program.metadata || {};
+/**
+ * Why a failed proposal or incorrect program got no score. The summary's
+ * feedback is cut short and has no logs, so prefer the details response;
+ * the stderr line comes only from details and is omitted while they load.
+ */
+function failureHtml(program, details) {
+    const source = details ? { ...program, metadata: details.metadata || {}, text_feedback: details.text_feedback } : program;
+    const m = source.metadata || {};
     const stage = m.failure_stage ? `<strong>Failed during ${escapeHtml(String(m.failure_stage).replace(/_/g, " "))}.</strong> ` : "";
-    return `<p class="program__failure">${stage}${escapeHtml(failureText(program))}</p>`;
+    const reason = clipText(failureText(source), FAILURE_TEXT_MAX, FAILURE_LINES_MAX);
+    const stderr = isFailedProposal(program) || !details ? "" : stderrLine((details.metadata || {}).stderr_log);
+    const stderrHtml = stderr && !reason.includes(stderr)
+        ? `<span class="program__failure-line"><span class="program__failure-label">Standard error:</span> <code>${escapeHtml(stderr)}</code></span>`
+        : "";
+    return `<p class="program__failure">${stage}${escapeHtml(reason)}${stderrHtml}</p>`;
+}
+
+/** The telling line of stderr: its first line, or the last line when it is a Python traceback. */
+function stderrLine(stderr) {
+    if (typeof stderr !== "string") return "";
+    const text = stderr.trim();
+    if (!text) return "";
+    const end = text.indexOf("\n");
+    const first = (end === -1 ? text : text.slice(0, end)).trim();
+    const line = first.startsWith("Traceback (most recent call last)") ? text.slice(text.lastIndexOf("\n") + 1).trim() : first;
+    return clipText(line, STDERR_LINE_MAX, 1);
+}
+
+function clipText(text, maxChars, maxLines) {
+    let clipped = String(text ?? "").trim();
+    const lines = clipped.split("\n", maxLines + 1);
+    if (lines.length > maxLines) clipped = lines.slice(0, maxLines).join("\n");
+    if (clipped.length > maxChars) clipped = clipped.slice(0, maxChars);
+    return clipped.length < String(text ?? "").trim().length ? `${clipped.trimEnd()}…` : clipped;
 }
 
 function toolbarHtml(ctx) {
     const { program, state } = ctx;
     const copy = `<span class="spacer"></span><button type="button" class="btn btn--small" data-program-action="copy" title="Copy to the clipboard">Copy</button>`;
     if (isFailedProposal(program)) return `<span class="muted">Generated code</span>${copy}`;
-    const hasParent = program.parent_id !== null && program.parent_id !== undefined;
-    const diffMode = state.mode === "diff" && hasParent;
-    const diffAttrs = hasParent ? "" : ` disabled title="This program has no parent"`;
+    const diffMode = state.mode === "diff" && hasParent(program);
+    const diffAttrs = hasParent(program) ? "" : ` disabled title="This program has no parent"`;
     return `<div class="segmented">
             <button type="button" class="btn btn--small${diffMode ? "" : " is-active"}" data-program-action="mode" data-mode="code">Code</button>
             <button type="button" class="btn btn--small${diffMode ? " is-active" : ""}" data-program-action="mode" data-mode="diff"${diffAttrs}>Diff from parent</button>
@@ -316,9 +372,9 @@ function codeAreaHtml(ctx) {
     if (code === null || code === undefined || code === "") {
         return `<div class="empty">${isFailedProposal(program) ? "No generated code was saved for this proposal." : "This program has no code."}</div>`;
     }
-    const hasParent = program.parent_id !== null && program.parent_id !== undefined;
-    if (state.mode === "diff" && hasParent && !isFailedProposal(program)) return diffViewHtml(ctx, String(code));
-    return codeHtml(String(code), data.details.language || program.language);
+    if (state.mode === "diff" && hasParent(program) && !isFailedProposal(program)) return diffViewHtml(ctx, String(code));
+    const language = data.details.language || program.language;
+    return memo("code", ctx, [String(code), language], () => codeHtml(String(code), language));
 }
 
 function codeHtml(code, language) {
@@ -328,7 +384,7 @@ function codeHtml(code, language) {
             const result = language && hljs.getLanguage(language) ? hljs.highlight(code, { language }) : hljs.highlightAuto(code);
             value = result.value;
             lang = result.language || language;
-        } catch (_) { value = null; }
+        } catch { value = null; }
     }
     return `<pre class="code"><code class="hljs language-${escapeHtml(lang || "plaintext")}">${value === null ? escapeHtml(code) : value}</code></pre>`;
 }
@@ -339,28 +395,52 @@ function diffViewHtml(ctx, code) {
     if (!parent) return `<div class="empty">The parent's code is not available.</div>`;
     if (parent.error) return `<div class="program__error">Could not load the parent's code: ${escapeHtml(parent.error.message || parent.error)}</div>`;
     if (parent.code === null || parent.code === undefined) return `<div class="empty">The parent has no code to compare with.</div>`;
-    const inModel = model.programs.get(program.parent_id);
+    const inModel = parentOf(model, program);
     const parentName = escapeHtml(inModel ? displayName(inModel) : shortId(program.parent_id));
-    const rows = diffRows(String(parent.code), code);
-    const added = rows.filter((r) => r.type === "add").length;
-    const removed = rows.filter((r) => r.type === "del").length;
-    const summary = added || removed
-        ? `<span class="delta--up">+${added}</span> <span class="delta--down">−${removed}</span> lines compared with ${parentName}`
-        : `The code is identical to ${parentName}`;
-    const shown = state.changesOnly ? collapseContext(rows) : rows;
-    return `<div class="diff__summary muted">${summary}</div>${diffTableHtml(shown)}`;
+    const parentCode = String(parent.code);
+    return memo("diff", ctx, [parentCode, code, state.changesOnly, parentName], () => {
+        const rows = diffRows(parentCode, code);
+        const shown = state.changesOnly ? collapseContext(rows) : rows;
+        return `<div class="diff__summary muted">${diffSummaryHtml(rows, parentName, parentCode, code)}</div>${diffTableHtml(shown)}`;
+    });
 }
 
-/** Line rows ({type: add|del|ctx, oldNo, newNo, text}) from jsdiff's line parts. */
+function diffSummaryHtml(rows, parentName, parentCode, code) {
+    const added = rows.filter((r) => r.type === "add").length;
+    const removed = rows.filter((r) => r.type === "del").length;
+    let summary = `The code is identical to ${parentName}`;
+    if (added || removed) summary = `<span class="delta--up">+${added}</span> <span class="delta--down">−${removed}</span> lines compared with ${parentName}`;
+    else if (rows.some((r) => r.type === "note")) summary = `Only the newline at the end of the file differs from ${parentName}`;
+    const endings = parentCode.includes("\r") !== code.includes("\r") ? " · line endings differ (CRLF and LF) and are ignored" : "";
+    return summary + endings;
+}
+
+function normaliseEol(text) {
+    return text.replace(/\r\n?/g, "\n");
+}
+
+function lacksFinalNewline(text) {
+    return text !== "" && !text.endsWith("\n");
+}
+
+/**
+ * Line rows ({type: add|del|ctx|note, oldNo, newNo, text}) from jsdiff's line
+ * parts. Line endings are normalised and a missing final newline is reported
+ * as a note row (as git does) instead of marking the last line changed.
+ */
 function diffRows(parentCode, code) {
+    const before = normaliseEol(parentCode), after = normaliseEol(code);
     const rows = [];
     let oldNo = 1, newNo = 1;
-    for (const part of Diff.diffLines(parentCode, code)) {
+    for (const part of Diff.diffLines(lacksFinalNewline(before) ? `${before}\n` : before, lacksFinalNewline(after) ? `${after}\n` : after)) {
         for (const text of part.value.replace(/\n$/, "").split("\n")) {
             if (part.added) rows.push({ type: "add", oldNo: null, newNo: newNo++, text });
             else if (part.removed) rows.push({ type: "del", oldNo: oldNo++, newNo: null, text });
             else rows.push({ type: "ctx", oldNo: oldNo++, newNo: newNo++, text });
         }
+    }
+    if (lacksFinalNewline(before) !== lacksFinalNewline(after)) {
+        rows.push({ type: "note", text: `No newline at the end of the file in ${lacksFinalNewline(after) ? "this program" : "the parent"}` });
     }
     return rows;
 }
@@ -391,6 +471,7 @@ function diffTableHtml(rows) {
     if (!rows.length) return `<div class="empty">Both programs are empty.</div>`;
     const body = rows.map((row) => {
         if (row.type === "gap") return `<tr class="diff__gap"><td colspan="3">… ${row.count} unchanged line${row.count === 1 ? "" : "s"}</td></tr>`;
+        if (row.type === "note") return `<tr class="diff__note"><td colspan="3">${escapeHtml(row.text)}</td></tr>`;
         return `<tr class="diff__${row.type}"><td class="diff__no">${row.oldNo ?? ""}</td><td class="diff__no">${row.newNo ?? ""}</td><td class="diff__text">${escapeHtml(row.text)}</td></tr>`;
     }).join("");
     return `<div class="diff"><table>${body}</table></div>`;
@@ -398,28 +479,42 @@ function diffTableHtml(rows) {
 
 // ---------- sections ----------
 
-function evaluationHtml(ctx, row) {
-    const m = row.metadata || {};
+/** Feedback, logs and plots, all from the details response. */
+function evaluationHtml(ctx, details) {
+    const m = details.metadata || {};
     const blocks = [
-        logBlock("Feedback", row.text_feedback),
+        logBlock("Feedback", details.text_feedback),
         logBlock("Standard output", m.stdout_log),
         logBlock("Standard error", m.stderr_log),
     ].filter(Boolean);
-    const plots = ctx.data && Array.isArray(ctx.data.plots) ? ctx.data.plots : [];
+    const plots = Array.isArray(ctx.data.plots) ? ctx.data.plots : [];
     if (plots.length) blocks.push(plotsHtml(ctx.api, plots));
     return blocks.length ? blocks.join("") : `<p class="muted">No evaluation output was recorded.</p>`;
 }
 
 function logBlock(label, text) {
     if (text === null || text === undefined) return "";
-    let body = typeof text === "object" ? JSON.stringify(text, null, 2) : String(text);
+    const body = (typeof text === "object" ? JSON.stringify(text, null, 2) : String(text)).trimEnd();
     if (body.trim() === "") return "";
-    let note = "";
-    if (body.length > LOG_CAP) {
-        note = `<span class="log__note">showing the last ${LOG_CAP.toLocaleString()} characters of ${body.length.toLocaleString()}</span>`;
-        body = body.slice(-LOG_CAP);
-    }
-    return `<div class="log-block"><div class="log__label">${escapeHtml(label)}${note}</div><pre class="log">${escapeHtml(body)}</pre></div>`;
+    const { shown, note } = capLog(body);
+    const noteHtml = note ? `<span class="log__note">${escapeHtml(note)}</span>` : "";
+    return `<div class="log-block"><div class="log__label">${escapeHtml(label)}${noteHtml}</div><pre class="log">${escapeHtml(shown)}</pre></div>`;
+}
+
+/** The tail of a long log, starting at a line boundary, and a note saying how much of it is shown. */
+function capLog(body) {
+    if (body.length <= LOG_CAP) return { shown: body, note: "" };
+    const tail = body.slice(-LOG_CAP);
+    const cut = tail.indexOf("\n");
+    if (cut === -1) return { shown: tail, note: `showing the last ${LOG_CAP.toLocaleString()} of ${body.length.toLocaleString()} characters` };
+    const shown = tail.slice(cut + 1);
+    return { shown, note: `showing the last ${countLines(shown).toLocaleString()} of ${countLines(body).toLocaleString()} lines` };
+}
+
+function countLines(text) {
+    let count = 1;
+    for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) count += 1;
+    return count;
 }
 
 function plotsHtml(api, plots) {
@@ -434,8 +529,9 @@ function plotsHtml(api, plots) {
     return `<div class="log-block"><div class="log__label">Plots</div><div class="plots">${figures}</div></div>`;
 }
 
-function llmHtml(row) {
-    const m = row.metadata || {};
+/** Patch description, reasoning, response and token counts, all from the details response. */
+function llmHtml(program, details) {
+    const m = details.metadata || {};
     const result = m.llm_result && typeof m.llm_result === "object" ? m.llm_result : {};
     const blocks = [
         logBlock("Patch description", m.patch_description),
@@ -443,33 +539,35 @@ function llmHtml(row) {
         logBlock("Response", result.content || result.msg),
     ].filter(Boolean);
     const pairs = [
-        ["Model", escapeHtml(result.model_name || modelName(row) || "")],
+        ["Model", escapeHtml(result.model_name || modelName(program) || "")],
         ["Input tokens", formatInt(result.input_tokens)],
         ["Output tokens", formatInt(result.output_tokens)],
         ["Thinking tokens", formatInt(result.thinking_tokens)],
-        ["Cost", result.cost === null || result.cost === undefined ? "" : escapeHtml(formatCost(result.cost))],
+        ["LLM cost", result.cost === null || result.cost === undefined ? "" : escapeHtml(formatCost(result.cost))],
     ].filter(([, value]) => value);
     if (pairs.length) blocks.push(kvHtml(pairs));
     return blocks.length ? blocks.join("") : `<p class="muted">No LLM response was recorded.</p>`;
 }
 
-function detailsHtml(ctx, row) {
-    const m = row.metadata || {};
+/** Facts from the summary row; lines of code come from the details response once it arrives. */
+function detailsHtml(ctx, details) {
+    const { model, program } = ctx;
+    const m = program.metadata || {};
     const attempts = m.attempts && typeof m.attempts === "object" ? m.attempts : m;
-    const analysis = m.code_analysis_metrics || {};
+    const analysis = (details && details.metadata && details.metadata.code_analysis_metrics) || {};
     const pairs = [
-        ["Id", idHtml(row.id)],
-        ["Parent id", row.parent_id === null || row.parent_id === undefined ? `<span class="muted">none</span>` : idHtml(row.parent_id)],
-        ["Island", row.island_idx === null || row.island_idx === undefined ? "" : escapeHtml(row.island_idx)],
-        ["Evaluated", escapeHtml(formatTimestamp(row.timestamp))],
-        ["Complexity", row.complexity === null || row.complexity === undefined ? "" : escapeHtml(formatScore(row.complexity))],
+        ["Id", idHtml(program.id)],
+        ["Parent id", hasParent(program) ? idHtml(program.parent_id) : `<span class="muted">none</span>`],
+        ["Island", program.island_idx === null || program.island_idx === undefined ? "" : escapeHtml(program.island_idx)],
+        ["Evaluated", escapeHtml(formatTimestamp(program.timestamp))],
+        ["Complexity", program.complexity === null || program.complexity === undefined ? "" : escapeHtml(formatScore(program.complexity))],
         ["Lines of code", formatInt(analysis.lines_of_code)],
-        ["Public metrics", metricsHtml(row.public_metrics)],
-        ["Private metrics", metricsHtml(row.private_metrics)],
+        ["Public metrics", metricsHtml(program.public_metrics)],
+        ["Private metrics", metricsHtml(program.private_metrics)],
         ["Attempts", joinFacts([["novelty", formatInt(attempts.novelty_attempt)], ["resample", formatInt(attempts.resample_attempt)], ["patch", formatInt(attempts.patch_attempt)]])],
         ["Timings", joinFacts([["sampling", formatSeconds(m.sampling_seconds)], ["evaluation", formatSeconds(m.evaluation_seconds)], ["postprocess", formatSeconds(m.postprocess_seconds)]])],
-        ["Inspirations", inspirationsHtml(ctx.model, row.top_k_inspiration_ids)],
-        ["Archive inspirations", inspirationsHtml(ctx.model, row.archive_inspiration_ids)],
+        ["Inspirations", inspirationsHtml(model, program.top_k_inspiration_ids)],
+        ["Archive inspirations", inspirationsHtml(model, program.archive_inspiration_ids)],
     ].filter(([, value]) => value);
     return kvHtml(pairs);
 }
@@ -510,11 +608,11 @@ function formatValue(value) {
 
 function formatInt(value) {
     const n = Number(value);
-    return value === null || value === undefined || !Number.isFinite(n) ? "" : escapeHtml(n.toLocaleString());
+    return value === null || value === undefined || value === "" || !Number.isFinite(n) ? "" : escapeHtml(n.toLocaleString());
 }
 
 function formatSeconds(value) {
     const s = Number(value);
-    if (value === null || value === undefined || !Number.isFinite(s)) return "";
+    if (value === null || value === undefined || value === "" || !Number.isFinite(s)) return "";
     return escapeHtml(s < 60 ? `${s.toFixed(1)} s` : formatDuration(s));
 }

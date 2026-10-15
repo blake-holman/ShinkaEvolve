@@ -19,6 +19,9 @@
     white-space: pre-wrap;
     word-break: break-word;
 }
+.program__failure-line { display: block; margin-top: var(--sp-1); }
+.program__failure-label { font-weight: 600; }
+.program__failure code { font-family: var(--mono); font-size: var(--fs-xs); }
 
 .btn-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
 .btn-link:hover { text-decoration: underline; }
@@ -54,14 +57,14 @@ pre.code code.hljs { padding: 0; background: transparent; }
 }
 .diff table { min-width: 100%; border-collapse: collapse; }
 .diff td { padding: 0 var(--sp-2); vertical-align: top; }
-.diff__no { width: 1%; color: var(--fg-faint); text-align: right; white-space: nowrap; user-select: none; }
+.diff__no { width: 1%; color: var(--fg-muted); text-align: right; white-space: nowrap; user-select: none; }
 .diff__text { white-space: pre; }
 .diff__text::before { content: " "; display: inline-block; width: 1.2em; color: var(--fg-muted); user-select: none; }
 .diff__add { background: var(--diff-add-bg); }
 .diff__add .diff__text::before { content: "+"; color: var(--ok); }
 .diff__del { background: var(--diff-del-bg); }
 .diff__del .diff__text::before { content: "−"; color: var(--bad); }
-.diff__gap td {
+.diff__gap td, .diff__note td {
     padding: var(--sp-1) var(--sp-3);
     background: var(--bg-sunken);
     color: var(--fg-muted);
@@ -69,6 +72,7 @@ pre.code code.hljs { padding: 0; background: transparent; }
     font-size: var(--fs-xs);
     text-align: center;
 }
+.diff__note td { text-align: left; font-style: italic; }
 
 /* ---------- sections ---------- */
 .log-block + .log-block { margin-top: var(--sp-3); }

@@ -1,8 +1,27 @@
-// Status strip: run name, state, generation, best score, cost, last update.
-import { formatAgo, formatCost, formatDuration, formatScore, escapeHtml } from "./model.js";
+// Status strip: run name, state, best score, last update, cost, programs.
+//
+// Items are listed in priority order. The strip is one row high and hides
+// whatever wraps past it (see .status__items in run.css), so on narrow
+// windows the least important items disappear whole instead of being cut.
+import { correctPercent, escapeHtml, formatAgo, formatCost, formatDuration, formatScore } from "./model.js";
 
-function item(label, value, extraClass = "") {
-    return `<div class="status__item ${extraClass}"><span class="status__label">${escapeHtml(label)}</span><span class="status__value">${value}</span></div>`;
+function item(label, value, title = "") {
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+    return `<div class="status__item"${titleAttr}><span class="status__label">${escapeHtml(label)}</span><span class="status__value">${value}</span></div>`;
+}
+
+/** "task / run" from a database path like "task/run/evolution_db.sqlite". */
+export function runLabel(dbPath) {
+    const parts = (dbPath || "").split("/").filter(Boolean);
+    if (parts.length >= 3) return `${parts[parts.length - 3]} / ${parts[parts.length - 2]}`;
+    if (parts.length === 2) return parts[0];
+    return parts[0] || "run";
+}
+
+function stateItem(model) {
+    return model.status === "active"
+        ? item("Status", `<span class="pill pill--ok">active</span>`, "A program arrived in the last five minutes")
+        : item("Status", `<span class="pill">idle</span>`, "No new program in the last five minutes");
 }
 
 /**
@@ -12,8 +31,7 @@ function item(label, value, extraClass = "") {
  * @param nowSeconds current time in seconds, for "updated N ago"
  */
 export function renderStatus(nameEl, itemsEl, { dbPath, model, nowSeconds, error }) {
-    const runName = (dbPath || "").split("/").slice(-2, -1)[0] || dbPath || "run";
-    nameEl.textContent = runName;
+    nameEl.textContent = runLabel(dbPath);
     nameEl.title = dbPath || "";
     if (error) {
         itemsEl.innerHTML = item("Status", `<span class="pill pill--bad">${escapeHtml(error)}</span>`);
@@ -24,21 +42,18 @@ export function renderStatus(nameEl, itemsEl, { dbPath, model, nowSeconds, error
         return;
     }
     const t = model.totals;
-    const state = model.status === "active"
-        ? `<span class="pill pill--ok" title="A program was added in the last five minutes">active</span>`
-        : `<span class="pill" title="No new program in the last five minutes">idle</span>`;
     const best = model.best
         ? `${formatScore(model.best.combined_score)} <span class="muted">gen ${model.best.generation}</span>`
         : `<span class="muted">none yet</span>`;
-    const correctPct = t.programCount ? Math.round((100 * t.correctCount) / t.programCount) : 0;
     const updated = t.lastTimestamp !== null && Number.isFinite(nowSeconds) ? formatAgo(nowSeconds - t.lastTimestamp) : "–";
+    const costTitle = t.extraCost ? `Programs ${formatCost(t.programCost)} + prompt evolution ${formatCost(t.extraCost)}` : "LLM, embedding, novelty, and meta cost of every program";
     itemsEl.innerHTML = [
-        item("Status", state),
-        item("Generation", `${model.maxGeneration}`),
-        item("Programs", `${t.programCount} <span class="muted">${correctPct}% correct</span>`),
+        stateItem(model),
         item("Best score", best),
-        item("Cost", formatCost(t.totalCost)),
+        item("Updated", updated, t.lastTimestamp !== null ? new Date(t.lastTimestamp * 1000).toLocaleString() : ""),
+        item("Cost", formatCost(t.totalCost), costTitle),
+        item("Programs", `${t.programCount} <span class="muted">${correctPercent(t)}% correct</span>`),
+        item("Generation", `${model.maxGeneration}`, "Latest generation"),
         item("Runtime", formatDuration(t.runtimeSeconds)),
-        item("Updated", `<span id="status-updated">${updated}</span>`),
     ].join("");
 }

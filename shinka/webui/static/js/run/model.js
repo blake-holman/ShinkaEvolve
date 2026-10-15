@@ -43,6 +43,31 @@ export function patchType(program) {
     return m.patch_type || (program.generation === 0 ? "init" : null);
 }
 
+const PATCH_WORDS = { init: "Initial program", diff: "Diff patch", full: "Full rewrite", cross: "Crossover" };
+
+/** Patch type in plain words ("Diff patch"), or null. */
+export function patchWords(program) {
+    const type = patchType(program);
+    return type ? PATCH_WORDS[type] || type : null;
+}
+
+/** CSS class for a score delta. */
+export function deltaClass(delta) {
+    if (delta === null || delta === undefined || !Number.isFinite(delta)) return "delta--flat";
+    return delta > 0 ? "delta--up" : delta < 0 ? "delta--down" : "delta--flat";
+}
+
+/** Integer percentage of programs that are correct. */
+export function correctPercent(totals) {
+    return totals.programCount ? Math.round((100 * totals.correctCount) / totals.programCount) : 0;
+}
+
+/** The program's parent when it is in the model, else null. */
+export function parentOf(model, program) {
+    if (!program || isMissing(program.parent_id)) return null;
+    return model.programs.get(program.parent_id) || null;
+}
+
 export function failureText(program) {
     const m = program.metadata || {};
     if (isFailedProposal(program)) return m.failure_reason || program.text_feedback || "Proposal failed before evaluation";
@@ -58,6 +83,10 @@ export function scoreDelta(program, parent) {
     return a - b;
 }
 
+function isMissing(value) {
+    return value === null || value === undefined || value === "";
+}
+
 function compareBest(a, b) {
     // Higher score wins; ties go to the earlier generation, then the earlier timestamp.
     if (scoreOf(b) !== scoreOf(a)) return scoreOf(b) - scoreOf(a);
@@ -65,32 +94,48 @@ function compareBest(a, b) {
     return (a.timestamp || 0) - (b.timestamp || 0);
 }
 
+function sortByAge(programs, ids) {
+    return ids.sort((x, y) => {
+        const a = programs.get(x), b = programs.get(y);
+        return (a.generation - b.generation) || ((a.timestamp || 0) - (b.timestamp || 0)) || String(a.id).localeCompare(String(b.id));
+    });
+}
+
 /**
- * Build the run model: an index of programs, the best program and its lineage,
- * per-generation statistics, totals, and whether the run looks active.
- * @param rows programs from /get_programs_summary
- * @param options.now current time in seconds (epoch), used for the active check
+ * Index rows by id and link children. A program is a root when its parent is
+ * missing, or when following parents never reaches a parentless program (a
+ * cycle); in the cycle case the link to the parent is dropped so every
+ * program is reachable from exactly one root.
  */
-export function buildRunModel(rows, options = {}) {
+function indexPrograms(rows) {
     const programs = new Map();
     for (const row of rows || []) {
-        if (!row || row.id === undefined || row.id === null) continue;
+        if (!row || isMissing(row.id)) continue;
         programs.set(row.id, { ...row, children: [] });
     }
     const roots = [];
     for (const program of programs.values()) {
-        const parent = program.parent_id !== null && program.parent_id !== undefined ? programs.get(program.parent_id) : null;
-        if (parent) parent.children.push(program.id);
-        else roots.push(program.id);
+        const parent = isMissing(program.parent_id) ? null : programs.get(program.parent_id);
+        if (!parent || inCycle(programs, program)) roots.push(program.id);
+        else parent.children.push(program.id);
     }
-    const byId = (id) => programs.get(id);
-    const sortIds = (ids) => ids.sort((x, y) => {
-        const a = byId(x), b = byId(y);
-        return (a.generation - b.generation) || ((a.timestamp || 0) - (b.timestamp || 0)) || String(a.id).localeCompare(String(b.id));
-    });
-    sortIds(roots);
-    for (const program of programs.values()) sortIds(program.children);
+    sortByAge(programs, roots);
+    for (const program of programs.values()) sortByAge(programs, program.children);
+    return { programs, roots };
+}
 
+function inCycle(programs, program) {
+    const seen = new Set();
+    let current = program;
+    while (current && !isMissing(current.parent_id)) {
+        if (seen.has(current.id)) return true;
+        seen.add(current.id);
+        current = programs.get(current.parent_id);
+    }
+    return false;
+}
+
+function groupByGeneration(programs) {
     const byGeneration = new Map();
     let maxGeneration = 0;
     for (const program of programs.values()) {
@@ -99,18 +144,17 @@ export function buildRunModel(rows, options = {}) {
         if (!byGeneration.has(gen)) byGeneration.set(gen, []);
         byGeneration.get(gen).push(program.id);
     }
-    for (const ids of byGeneration.values()) sortIds(ids);
+    for (const ids of byGeneration.values()) sortByAge(programs, ids);
+    return { byGeneration, maxGeneration };
+}
 
-    const correct = [...programs.values()].filter(isCorrect).filter((p) => Number.isFinite(scoreOf(p)));
-    const best = correct.length ? correct.slice().sort(compareBest)[0] : null;
-    const bestLineage = new Set(best ? lineageOf({ programs }, best.id) : []);
-
+function generationStats(programs, byGeneration, maxGeneration) {
     const generations = [];
     let bestSoFar = null, cumulativeCost = 0;
     for (let gen = 0; gen <= maxGeneration; gen++) {
-        const ids = byGeneration.get(gen) || [];
-        const members = ids.map(byId);
-        const scored = members.filter(isCorrect).map(scoreOf).filter(Number.isFinite);
+        const members = (byGeneration.get(gen) || []).map((id) => programs.get(id));
+        const scoredMembers = members.filter((p) => isCorrect(p) && Number.isFinite(scoreOf(p)));
+        const scored = scoredMembers.map(scoreOf);
         const bestInGeneration = scored.length ? Math.max(...scored) : null;
         if (bestInGeneration !== null) bestSoFar = bestSoFar === null ? bestInGeneration : Math.max(bestSoFar, bestInGeneration);
         const cost = members.reduce((sum, p) => sum + programCost(p), 0);
@@ -125,53 +169,88 @@ export function buildRunModel(rows, options = {}) {
             cost,
             cumulativeCost,
             scores: scored,
+            scoredIds: scoredMembers.map((p) => p.id),
         });
     }
+    return generations;
+}
 
-    const timestamps = [...programs.values()].map((p) => Number(p.timestamp)).filter(Number.isFinite);
+function runTotals(programs, generations) {
+    const all = [...programs.values()];
+    const timestamps = all.map((p) => Number(p.timestamp)).filter(Number.isFinite);
     const firstTimestamp = timestamps.length ? Math.min(...timestamps) : null;
     const lastTimestamp = timestamps.length ? Math.max(...timestamps) : null;
-    const pipelineStarts = [...programs.values()].map((p) => Number((p.metadata || {}).pipeline_started_at)).filter(Number.isFinite);
+    const pipelineStarts = all.map((p) => Number((p.metadata || {}).pipeline_started_at)).filter(Number.isFinite);
     const runStart = pipelineStarts.length ? Math.min(...pipelineStarts) : firstTimestamp;
-    const now = Number.isFinite(options.now) ? options.now : null;
-
+    const newest = all.filter((p) => Number.isFinite(Number(p.timestamp)))
+        .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0] || null;
     return {
-        programs,
-        roots,
-        byGeneration,
-        maxGeneration,
-        best,
-        bestLineage,
-        generations,
-        totals: {
-            programCount: [...programs.values()].filter((p) => !isFailedProposal(p)).length,
-            failedProposalCount: [...programs.values()].filter(isFailedProposal).length,
-            correctCount: correct.length,
-            totalCost: cumulativeCost,
-            firstTimestamp,
-            lastTimestamp,
-            runtimeSeconds: runStart !== null && lastTimestamp !== null ? Math.max(0, lastTimestamp - runStart) : null,
-        },
-        status: now !== null && lastTimestamp !== null && now - lastTimestamp <= ACTIVE_WINDOW_SECONDS ? "active" : "idle",
+        programCount: all.filter((p) => !isFailedProposal(p)).length,
+        failedProposalCount: all.filter(isFailedProposal).length,
+        correctCount: all.filter(isCorrect).length,
+        totalCost: generations.length ? generations[generations.length - 1].cumulativeCost : 0,
+        firstTimestamp,
+        lastTimestamp,
+        newestId: newest ? newest.id : null,
+        runtimeSeconds: runStart !== null && lastTimestamp !== null ? Math.max(0, lastTimestamp - runStart) : null,
     };
 }
 
-/** Ids from the root down to `id` (inclusive). Cycles are cut. */
+/** "active" when a program arrived within ACTIVE_WINDOW_SECONDS of `now` (epoch seconds). */
+export function runStatus(lastTimestamp, now) {
+    if (!Number.isFinite(now) || lastTimestamp === null || lastTimestamp === undefined) return "idle";
+    return now - lastTimestamp <= ACTIVE_WINDOW_SECONDS ? "active" : "idle";
+}
+
+/**
+ * Build the run model: an index of programs, the best program and its lineage,
+ * per-generation statistics, totals, and whether the run looks active.
+ * @param rows programs from /get_programs_summary
+ * @param options.now current time in seconds (epoch), used for the active check
+ * @param options.extraCost spend not attached to programs (prompt evolution), added to totals.totalCost
+ */
+export function buildRunModel(rows, options = {}) {
+    const { programs, roots } = indexPrograms(rows);
+    const { byGeneration, maxGeneration } = groupByGeneration(programs);
+    const scored = [...programs.values()].filter((p) => isCorrect(p) && Number.isFinite(scoreOf(p)));
+    const best = scored.length ? scored.slice().sort(compareBest)[0] : null;
+    const model = { programs, roots, byGeneration, maxGeneration, best };
+    model.bestLineage = new Set(best ? lineageOf(model, best.id) : []);
+    model.generations = generationStats(programs, byGeneration, maxGeneration);
+    model.totals = runTotals(programs, model.generations);
+    model.totals.programCost = model.totals.totalCost;
+    model.totals.extraCost = Number(options.extraCost) || 0;
+    model.totals.totalCost += model.totals.extraCost;
+    model.status = runStatus(model.totals.lastTimestamp, options.now);
+    return model;
+}
+
+/** Ids from the root down to `id` (inclusive), following the links the tree draws. */
 export function lineageOf(model, id) {
     const path = [];
     const seen = new Set();
+    const roots = model.roots ? new Set(model.roots) : null;
     let current = model.programs.get(id);
     while (current && !seen.has(current.id)) {
         seen.add(current.id);
         path.push(current.id);
-        current = current.parent_id !== null && current.parent_id !== undefined ? model.programs.get(current.parent_id) : null;
+        if (roots && roots.has(current.id)) break;
+        current = isMissing(current.parent_id) ? null : model.programs.get(current.parent_id);
     }
     return path.reverse();
 }
 
-/** Nodes whose children are shown initially: roots plus every node on the best lineage. */
+/**
+ * Nodes whose children are shown initially: the roots, the best lineage, and
+ * the lineage of the newest program, so the tree always reaches the
+ * generation the run is working on.
+ */
 export function defaultExpanded(model) {
-    return new Set([...model.roots, ...model.bestLineage]);
+    const expanded = new Set([...model.roots, ...model.bestLineage]);
+    if (model.totals && model.totals.newestId !== null) {
+        for (const id of lineageOf(model, model.totals.newestId)) expanded.add(id);
+    }
+    return expanded;
 }
 
 export function allExpanded(model) {
@@ -194,17 +273,50 @@ export function visibleIds(model, expanded) {
     return visible;
 }
 
-/** Number of descendants hidden under `id` for the given expanded set. */
-export function hiddenDescendantCount(model, id, expanded) {
+/** Every descendant of `id` (not including it). */
+export function descendantsOf(model, id) {
     const program = model.programs.get(id);
-    if (!program || expanded.has(id)) return 0;
-    let count = 0;
+    const found = [];
+    if (!program) return found;
+    const seen = new Set([id]);
     const stack = [...program.children];
     while (stack.length) {
-        const next = model.programs.get(stack.pop());
+        const nextId = stack.pop();
+        if (seen.has(nextId)) continue;
+        seen.add(nextId);
+        const next = model.programs.get(nextId);
         if (!next) continue;
-        count += 1;
+        found.push(nextId);
         stack.push(...next.children);
+    }
+    return found;
+}
+
+/** Number of descendants hidden under `id` for the given expanded set. */
+export function hiddenDescendantCount(model, id, expanded) {
+    if (expanded.has(id)) return 0;
+    return descendantsOf(model, id).length;
+}
+
+/** Expand `id` and its whole subtree. Returns a new Set. */
+export function expandSubtree(model, expanded, id) {
+    return new Set([...expanded, id, ...descendantsOf(model, id)]);
+}
+
+/** Collapse `id` and its whole subtree. Returns a new Set. */
+export function collapseSubtree(model, expanded, id) {
+    const next = new Set(expanded);
+    next.delete(id);
+    for (const descendant of descendantsOf(model, id)) next.delete(descendant);
+    return next;
+}
+
+/** Visible programs that are not failed proposals, for "N of M programs shown". */
+export function visibleProgramCount(model, visible) {
+    let count = 0;
+    for (const id of visible) {
+        const program = model.programs.get(id);
+        if (program && !isFailedProposal(program)) count += 1;
     }
     return count;
 }
@@ -219,6 +331,7 @@ export function expandTo(model, expanded, id) {
 // ---------- formatting ----------
 
 export function formatScore(value) {
+    if (isMissing(value)) return "–";
     const n = Number(value);
     if (!Number.isFinite(n)) return "–";
     if (Math.abs(n) >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -233,6 +346,7 @@ export function formatDelta(delta) {
 }
 
 export function formatCost(value) {
+    if (isMissing(value)) return "–";
     const n = Number(value);
     if (!Number.isFinite(n)) return "–";
     if (n === 0) return "$0";
@@ -242,6 +356,7 @@ export function formatCost(value) {
 }
 
 export function formatDuration(seconds) {
+    if (isMissing(seconds)) return "–";
     const s = Number(seconds);
     if (!Number.isFinite(s) || s < 0) return "–";
     if (s < 60) return `${Math.round(s)}s`;
@@ -251,6 +366,7 @@ export function formatDuration(seconds) {
 }
 
 export function formatAgo(seconds) {
+    if (isMissing(seconds)) return "–";
     const s = Number(seconds);
     if (!Number.isFinite(s)) return "–";
     if (s < 5) return "just now";
@@ -261,6 +377,7 @@ export function formatAgo(seconds) {
 }
 
 export function formatTimestamp(seconds) {
+    if (isMissing(seconds)) return "–";
     const n = Number(seconds);
     if (!Number.isFinite(n)) return "–";
     return new Date(n * 1000).toLocaleString();

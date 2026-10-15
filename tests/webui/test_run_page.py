@@ -30,16 +30,23 @@ def page(browser, server):
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on(
         "console",
-        lambda m: errors.append(f"console.{m.type}: {m.text}")
-        if m.type == "error" and not any(s in m.text for s in IGNORED_CONSOLE)
-        else None,
+        lambda m: (
+            errors.append(f"console.{m.type}: {m.text}")
+            if m.type == "error" and not any(s in m.text for s in IGNORED_CONSOLE)
+            else None
+        ),
     )
     page.on("requestfailed", lambda r: errors.append(f"request failed: {r.url}"))
     page.route(
         "**/*",
-        lambda route: route.continue_()
-        if route.request.url.startswith(base)
-        else (errors.append(f"external request: {route.request.url}"), route.abort()),
+        lambda route: (
+            route.continue_()
+            if route.request.url.startswith(base)
+            else (
+                errors.append(f"external request: {route.request.url}"),
+                route.abort(),
+            )
+        ),
     )
     page.base = base
     page.errors = errors
@@ -48,8 +55,12 @@ def page(browser, server):
 
 
 def open_run(page, query=""):
-    page.goto(f"{page.base}/run.html?db_path={DB_PATH}{query}", wait_until="networkidle")
-    page.wait_for_function("window.shinkaRun && window.shinkaRun.state.model !== null", timeout=15_000)
+    page.goto(
+        f"{page.base}/run.html?db_path={DB_PATH}{query}", wait_until="networkidle"
+    )
+    page.wait_for_function(
+        "window.shinkaRun && window.shinkaRun.state.model !== null", timeout=15_000
+    )
     page.wait_for_timeout(400)
 
 
@@ -73,7 +84,12 @@ def test_status_strip_and_overview_on_load(page):
     assert state(page)["view"] == "overview"
     panel = page.locator("#panel").inner_text()
     assert "Run overview" in panel or "overview" in panel.lower()
-    assert page.locator("#panel .js-plotly-plot, #panel .plotly, #panel svg, #panel canvas").count() >= 1
+    assert (
+        page.locator(
+            "#panel .js-plotly-plot, #panel .plotly, #panel svg, #panel canvas"
+        ).count()
+        >= 1
+    )
     assert "Scratchpad" in panel
     assert page.errors == []
 
@@ -82,16 +98,19 @@ def test_tree_shows_collapsed_lineage_and_expands(page):
     open_run(page)
     s = state(page)
     summary = page.locator("#tree-summary").inner_text()
-    assert "of" in summary and str(s["programs"]) in summary
+    program_count = page.evaluate("window.shinkaRun.state.model.totals.programCount")
+    assert f"of {program_count} programs" in summary and "2 failed proposals" in summary
     shown_before = int(summary.split(" of ")[0])
     assert shown_before < s["programs"]
     page.click("#btn-expand")
     page.wait_for_timeout(300)
     shown_after = int(page.locator("#tree-summary").inner_text().split(" of ")[0])
-    assert shown_after == s["programs"]
+    assert shown_after == program_count
     page.click("#btn-collapse")
     page.wait_for_timeout(300)
-    assert int(page.locator("#tree-summary").inner_text().split(" of ")[0]) == shown_before
+    assert (
+        int(page.locator("#tree-summary").inner_text().split(" of ")[0]) == shown_before
+    )
     assert page.locator("#tree svg").count() == 1
     assert page.errors == []
 
@@ -108,7 +127,12 @@ def test_best_button_selects_best_program_and_updates_url(page):
     assert "def solve" in panel  # code loaded
     page.click("#btn-run")
     page.wait_for_timeout(300)
-    assert state(page)["view"] == "overview" and "view=run" in page.url
+    s = state(page)
+    assert s["view"] == "overview" and s["selectedId"] is None
+    assert "program=" not in page.url
+    page.go_back()
+    page.wait_for_timeout(500)
+    assert state(page)["selectedId"] == best_id(page)
     assert page.errors == []
 
 
@@ -157,6 +181,60 @@ def test_theme_toggle_persists(page):
     page.wait_for_timeout(300)
     assert page.evaluate("document.documentElement.dataset.theme") == after
     assert page.errors == []
+
+
+def test_unknown_program_falls_back_to_overview(page):
+    open_run(page, "&program=does-not-exist")
+    s = state(page)
+    assert s["view"] == "overview" and s["selectedId"] is None
+    assert "program=" not in page.url
+    assert "not in this run" in page.locator("#toast").inner_text()
+    assert page.errors == []
+
+
+def test_keyboard_shortcuts(page):
+    open_run(page)
+    page.keyboard.press("b")
+    page.wait_for_timeout(600)
+    assert state(page)["selectedId"] == best_id(page)
+    page.keyboard.press("ArrowLeft")
+    page.wait_for_timeout(600)
+    s = state(page)
+    parent = page.evaluate("window.shinkaRun.state.model.best.parent_id")
+    assert s["selectedId"] == parent
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(400)
+    assert state(page)["view"] == "overview"
+    assert page.errors == []
+
+
+def test_plus_pill_reveals_whole_subtree(page):
+    open_run(page)
+    before = int(page.locator("#tree-summary").inner_text().split(" of ")[0])
+    pills = page.locator("#tree .tree-pill--more")
+    assert pills.count() >= 1
+    label = pills.first.locator("text").first.text_content().strip()
+    hidden = int(label.lstrip("+"))
+    pills.first.click(force=True)
+    page.wait_for_timeout(500)
+    after = int(page.locator("#tree-summary").inner_text().split(" of ")[0])
+    assert after >= before + 1 and after <= before + hidden
+    assert page.errors == []
+
+
+def test_run_cost_matches_run_list(page):
+    page.goto(page.base + "/", wait_until="networkidle")
+    page.locator("input.result-checkbox, .run-row, tr[data-path]").first.wait_for(
+        timeout=10_000
+    )
+    page.wait_for_timeout(800)
+    import re
+
+    list_costs = re.findall(r"\$\d+\.\d+", page.locator("body").inner_text())
+    open_run(page)
+    strip = page.locator("#status-items").inner_text()
+    strip_cost = re.findall(r"\$\d+\.\d+", strip)
+    assert strip_cost and strip_cost[0] in list_costs, (strip_cost, list_costs)
 
 
 def test_unknown_database_shows_error(page):

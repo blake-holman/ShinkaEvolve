@@ -245,3 +245,50 @@ def test_summary_reflects_new_rows_after_write(client, results_root: Path):
     time.sleep(1.1)  # exceed the cache grace period
     _, after = client.json("/get_program_count", db_path=DB_PATH)
     assert after["count"] == before["count"] + 1
+
+
+def test_light_summary_drops_heavy_fields(client):
+    _, full = client.json("/get_programs_summary", db_path=DB_PATH)
+    status, light = client.json("/get_programs_summary", db_path=DB_PATH, light=1)
+    assert status == 200 and len(light) == len(full)
+    real = next(
+        p for p in light if not p["id"].startswith("failed:") and p["generation"] > 0
+    )
+    meta = real["metadata"]
+    for key in (
+        "stdout_log",
+        "stderr_log",
+        "thought",
+        "patch_description",
+        "code_analysis_metrics",
+    ):
+        assert key not in meta
+    assert set(meta["llm_result"]) <= {
+        "model_name",
+        "cost",
+        "input_tokens",
+        "output_tokens",
+        "thinking_tokens",
+    }
+    assert "embedding_pca_2d" not in real
+    assert meta["patch_name"] and "api_costs" in meta and "pipeline_started_at" in meta
+    full_real = next(p for p in full if p["id"] == real["id"])
+    assert "stdout_log" in full_real["metadata"]
+
+
+def test_stats_cost_includes_failed_proposals(client):
+    _, stats = client.json("/get_database_stats", db_path=DB_PATH)
+    _, rows = client.json("/get_programs_summary", db_path=DB_PATH)
+    keys = ("api_costs", "embed_cost", "novelty_cost", "meta_cost")
+    expected = sum(
+        sum(float((p["metadata"] or {}).get(k) or 0) for k in keys) for p in rows
+    )
+    assert abs(stats["total_cost"] - expected) < 1e-9
+
+
+def test_meta_files_empty_list_without_meta_dir(tmp_path):
+    from shinka.webui.server.endpoints.meta import list_meta_files
+
+    run = tmp_path / "run"
+    run.mkdir()
+    assert list_meta_files(run) == []

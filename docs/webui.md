@@ -90,12 +90,14 @@ One page per run, split into three parts:
   arrived. The page polls every three seconds and reloads itself when a
   program is added.
 - **Tree** on the left: one column per generation, the best lineage in orange,
-  the best program ringed in gold, failed programs red, proposals that never
-  reached evaluation as hollow dashed circles. Only the best lineage and its
-  siblings are shown at first; a `+N` pill expands a hidden subtree. Hover a
-  node for its name, score, delta from its parent, model, and patch type.
-  Click a node to open it. Arrow keys move between parent, child, and
-  siblings; `B` jumps to the best program.
+  the best program ringed in gold, incorrect programs red, proposals that never
+  reached evaluation as hollow dashed circles, and programs without a score in
+  grey. At first only the best lineage, the newest lineage, and their siblings
+  are shown; a `+N` pill shows the N programs hidden under a node and a `−` pill
+  hides them again. Hover a node for its name, score, change from its parent,
+  model, and patch type. Click a node to open it. **Fit** (`F`) shows the
+  newest generations at a readable size; `W` fits the whole run however small.
+  While you have not panned, the tree follows new generations as they arrive.
 - **Right pane**: the selected program, or the run overview when nothing is
   selected or **Run overview** is pressed.
   - *Program*: name, generation, score with the change from its parent,
@@ -108,9 +110,13 @@ One page per run, split into three parts:
     correct program), cost per generation with the cumulative total, and the
     summarizer's scratchpad when the run wrote one.
 
-The URL carries the run, the selected program, and the view, so a link opens
-exactly what you were looking at. The theme button switches between light and
-dark; the choice is remembered.
+Keys: arrows move between parent, child, and siblings; `B` selects the best
+program; `F` fits; `W` shows the whole run; `Esc` returns to the overview.
+
+The URL carries the run and the selected program, so a link opens exactly
+what you were looking at. The theme button switches between light and dark;
+the choice is remembered. Costs on the run list and the run page use the same
+total: every program, every failed proposal, and prompt evolution.
 
 ### Advanced page
 
@@ -144,7 +150,7 @@ directory; paths outside it are rejected with 403.
 | Endpoint | Parameters | Returns |
 |----------|------------|---------|
 | `/list_databases` | | Every database below the root with its task and display name. |
-| `/get_programs_summary` | `db_path` | All programs without code or raw embeddings, plus failed-proposal nodes. |
+| `/get_programs_summary` | `db_path`, optional `light=1` | All programs without code or raw embeddings, plus failed-proposal nodes. `light=1` also drops logs, LLM text, and code metrics (the run page uses this). |
 | `/get_programs` | `db_path` | All programs including code and embeddings. Heavy. |
 | `/get_program_count` | `db_path` | Program count and newest timestamp, used for change detection. |
 | `/get_program_details` | `db_path`, `id` | One program with code. Failed proposals use ids of the form `failed:proposal:<generation>`. |
