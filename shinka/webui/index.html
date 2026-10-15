@@ -1,87 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎏 ShinkaEvolve Results Dashboard</title>
+    <title>ShinkaEvolve runs</title>
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="stylesheet" href="/static/css/index.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <img src="favicon.png" alt="Shinka Logo" class="logo">
-            <div class="header-text">
+        <header class="header">
+            <img src="favicon.png" alt="" class="logo">
+            <div class="header__text">
                 <h1>ShinkaEvolve</h1>
-                <p>Program Evolution Overview</p>
+                <p class="muted">Runs</p>
             </div>
-            <div class="header-links">
-                <a href="https://github.com/SakanaAI/ShinkaEvolve" target="_blank" class="header-link" title="GitHub Repository">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-                    </svg>
-                    <span>GitHub</span>
-                </a>
-                <a href="https://arxiv.org/abs/2509.19349" target="_blank" class="header-link" title="arXiv Paper">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M4 4v16h16V4H4zm14 14H6V6h12v12zM8 8v2h8V8H8zm0 4v2h8v-2H8zm0 4v2h5v-2H8z"/>
-                    </svg>
-                    <span>arXiv</span>
-                </a>
-                <a href="https://sakana.ai/shinka-evolve/" target="_blank" class="header-link" title="Sakana AI Blog">
-                    <img src="sakana.jpg" alt="Sakana AI" class="link-icon">
-                    <span>Sakana AI Blog</span>
-                </a>
-            </div>
-            <button id="compare-btn" class="compare-btn" onclick="openCompare()">
-                ⇄ Compare
-                <span class="count-badge" id="compare-count">0</span>
-            </button>
-            <div class="search-box">
-                <span class="search-icon">🔍</span>
-                <input type="text" id="search-input" placeholder="Filter...">
-            </div>
-            <div class="keyboard-hint">
-                Press <kbd>/</kbd> to search, <kbd>Esc</kbd> to clear
-            </div>
+            <span class="spacer"></span>
+            <label class="search" for="search-input">
+                <input type="search" id="search-input" placeholder="Filter runs" autocomplete="off">
+                <span class="search__hint"><kbd>/</kbd> focus <kbd>Esc</kbd> clear</span>
+            </label>
+            <a class="btn" href="https://github.com/SakanaAI/ShinkaEvolve" target="_blank" rel="noopener" title="ShinkaEvolve on GitHub">GitHub</a>
+            <button class="btn btn--icon" id="btn-theme" title="Switch between light and dark theme" aria-label="Toggle theme">&#9680;</button>
         </header>
 
-        <div id="loading-state" class="loading-container">
+        <div id="loading-state" class="loading">
             <div class="spinner"></div>
-            <div class="loading-text">Scanning for databases...</div>
+            <div class="muted">Scanning for runs&hellip;</div>
         </div>
 
-        <div id="empty-state" class="empty-state" style="display: none;">
-            <div class="empty-icon">📭</div>
-            <div class="empty-title">No databases found</div>
-            <div class="empty-text">
-                Run some evolution experiments to see results here.
-            </div>
+        <div id="empty-state" class="empty" hidden>
+            <div class="empty__title" id="empty-title">No runs found</div>
+            <div class="muted" id="empty-text">Run an evolution experiment to see its results here.</div>
         </div>
 
-        <div id="table-wrapper" class="table-container" style="display: none;">
-            <table id="results-table">
+        <div id="table-wrapper" class="card card--table" hidden>
+            <table id="results-table" class="runs">
                 <thead>
                     <tr>
-                        <th class="checkbox-cell">
-                            <input type="checkbox" id="select-all" title="Select all visible" onclick="toggleSelectAll(this)">
-                        </th>
-                        <th class="sortable" onclick="toggleSort('task')">Task<span id="sort-indicator-task" class="sort-indicator"></span></th>
-                        <th class="sortable" onclick="toggleSort('setting')">Setting<span id="sort-indicator-setting" class="sort-indicator"></span></th>
-                        <th class="numeric"># P</th>
-                        <th class="numeric hide-tablet">✔</th>
-                        <th class="numeric"># G</th>
-                        <th class="numeric hide-tablet">G*</th>
-                        <th class="numeric">Best</th>
-                        <th class="numeric hide-tablet">P-Evo</th>
-                        <th class="numeric hide-mobile">Cost ($)</th>
-                        <th class="hide-mobile">Updated</th>
+                        <th class="sortable" id="sort-run" data-sort="run" title="Sort by run name">Run <span class="sort-indicator"></span></th>
+                        <th>Status</th>
+                        <th class="numeric">Best score</th>
+                        <th class="numeric">Generations</th>
+                        <th class="numeric">Programs</th>
+                        <th class="numeric">Cost</th>
                         <th class="numeric">Runtime</th>
-                        <th></th>
+                        <th class="sortable" id="sort-updated" data-sort="updated" title="Sort by last update">Updated <span class="sort-indicator"></span></th>
                     </tr>
                 </thead>
-                <tbody id="results-body">
-                </tbody>
+                <tbody id="results-body"></tbody>
             </table>
         </div>
     </div>

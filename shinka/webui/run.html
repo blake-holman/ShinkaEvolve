@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShinkaEvolve run</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="/static/vendor/highlight-11.8.0-github.min.css">
+    <link rel="stylesheet" href="/static/css/run.css">
+</head>
+<body>
+    <header id="status" class="status" aria-label="Run status">
+        <a class="status__back" href="/" title="All runs">&larr; Runs</a>
+        <div class="status__name" id="status-name">Loading run&hellip;</div>
+        <div class="status__items" id="status-items"></div>
+        <div class="status__actions">
+            <button class="btn" id="btn-run" title="Show the run overview (score, cost, scratchpad)">Run overview</button>
+            <a class="btn" id="link-advanced" href="#" title="Open the full dashboard with every tab">Advanced</a>
+            <button class="btn btn--icon" id="btn-theme" title="Switch between light and dark theme" aria-label="Toggle theme">&#9680;</button>
+        </div>
+    </header>
+
+    <main id="layout" class="layout">
+        <section id="tree-pane" class="pane pane--tree" aria-label="Program tree">
+            <div class="pane__toolbar" id="tree-toolbar">
+                <span class="muted" id="tree-summary"></span>
+                <span class="spacer"></span>
+                <button class="btn btn--small" id="btn-best" title="Select the best program">Best</button>
+                <button class="btn btn--small" id="btn-expand" title="Show every program">Expand all</button>
+                <button class="btn btn--small" id="btn-collapse" title="Show only the best lineage">Collapse</button>
+                <button class="btn btn--small" id="btn-fit" title="Fit the tree to the pane">Fit</button>
+            </div>
+            <div id="tree" class="tree"></div>
+            <div id="tree-legend" class="legend">
+                <span class="legend__item"><span class="swatch swatch--scale"></span>score (low &rarr; high)</span>
+                <span class="legend__item"><span class="swatch swatch--best"></span>best</span>
+                <span class="legend__item"><span class="swatch swatch--failed"></span>failed</span>
+                <span class="legend__item"><span class="swatch swatch--lineage"></span>best lineage</span>
+            </div>
+        </section>
+        <div id="divider" class="divider" role="separator" aria-orientation="vertical"></div>
+        <section id="panel" class="pane pane--panel" aria-live="polite">
+            <div class="empty" id="panel-empty">Loading&hellip;</div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="/static/vendor/d3-7.9.0.min.js"></script>
+    <script src="/static/vendor/plotly-1.58.5.min.js"></script>
+    <script src="/static/vendor/marked-15.0.12.min.js"></script>
+    <script src="/static/vendor/highlight-11.8.0.min.js"></script>
+    <script src="/static/vendor/diff-5.1.0.min.js"></script>
+    <script type="module" src="/static/js/run/main.js"></script>
+</body>
+</html>

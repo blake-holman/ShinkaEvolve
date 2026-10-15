@@ -1,10 +1,10 @@
 # WebUI Guide
 
 The Shinka WebUI is a local dashboard for evolution runs: it lists every run
-under a directory, draws the genealogy of programs, and shows code, diffs,
-evaluation logs, costs, and throughput for a selected run. It reads the SQLite
-databases a run writes, so it works on finished runs and on runs that are
-still in progress.
+under a directory, draws the genealogy of programs, and shows the code, diff,
+evaluation output, and cost of any program. It reads the SQLite databases a
+run writes, so it works on finished runs and on runs that are still in
+progress.
 
 ![WebUI Screenshot](media/webui.png)
 
@@ -26,8 +26,8 @@ shinka_visualize results_20241201_120000/ --port 8888 --open
 shinka_visualize results/ --db run_a/evolution_db.sqlite --open
 ```
 
-The landing page lists every `*.sqlite` or `*.db` file found below the root
-directory (prompt databases are skipped). Click a run to open the tree view.
+The run list shows every `*.sqlite` or `*.db` file found below the root
+directory (prompt databases are skipped). Click a run to open it.
 
 ### Remote machines
 
@@ -71,61 +71,54 @@ database and plot image under the root directory.
 
 ## Pages
 
-### Landing page
+### Run list
 
-One row per run, grouped by task directory, with program count, best score,
-generation of the best score, generations since the last improvement, total
-cost, runtime, and prompt-evolution cost when a `prompts.sqlite` exists.
-Rows can be sorted by task or setting and filtered with the search box
-(press `/` to focus it). Select two or more runs and press **Compare** to
-open the compare page.
+The landing page lists every run below the root directory, grouped by task
+directory: status (active when a program was added in the last five minutes,
+idle otherwise, empty for runs without programs), best score with its
+generation, generations, programs with the number correct, cost, runtime, and
+when the run was last updated. Click a row to open the run. Press `/` to
+filter by name.
 
-### Compare page
+### Run page
 
-Score and cost curves for the selected runs on shared axes, using the
-selection made on the landing page.
+One page per run, split into three parts:
 
-### Tree page
+- **Status strip** across the top: run name, active or idle, current
+  generation, programs and the share that are correct, best score and the
+  generation that found it, cost, runtime, and how long ago the last program
+  arrived. The page polls every three seconds and reloads itself when a
+  program is added.
+- **Tree** on the left: one column per generation, the best lineage in orange,
+  the best program ringed in gold, failed programs red, proposals that never
+  reached evaluation as hollow dashed circles. Only the best lineage and its
+  siblings are shown at first; a `+N` pill expands a hidden subtree. Hover a
+  node for its name, score, delta from its parent, model, and patch type.
+  Click a node to open it. Arrow keys move between parent, child, and
+  siblings; `B` jumps to the best program.
+- **Right pane**: the selected program, or the run overview when nothing is
+  selected or **Run overview** is pressed.
+  - *Program*: name, generation, score with the change from its parent,
+    model, patch type, cost, island, and a link to the parent. Code with
+    syntax highlighting, or a diff from the parent with a changes-only mode.
+    Below it, collapsible sections for the evaluation output (feedback,
+    stdout, stderr, plot images), the LLM response, and the remaining
+    metadata.
+  - *Run overview*: stat cards, score by generation (best so far plus every
+    correct program), cost per generation with the cumulative total, and the
+    summarizer's scratchpad when the run wrote one.
 
-The left panel has one tab per view of the whole run:
+The URL carries the run, the selected program, and the view, so a link opens
+exactly what you were looking at. The theme button switches between light and
+dark; the choice is remembered.
 
-| Tab | Content |
-|-----|---------|
-| Tree | Genealogy drawn with D3. Node colour is the score, shape is the patch type (init, diff, full, cross). The best program is highlighted; failed programs are red. Proposals that failed before evaluation appear as separate nodes. Click a node to load it into the right panel. |
-| PromptEvo | Tree of evolved system prompts when the run used prompt evolution, with the programs each prompt produced. |
-| Programs | Sortable, paginated table of programs with status, patch type, island, score, cost, complexity, and the attempt counters. |
-| Metrics | Public metrics over generations. |
-| Embed | Cosine-similarity heatmap of program embeddings, sortable chronologically, by cluster, or by score. |
-| Clusters | PCA projection of embeddings in 2D and 3D. |
-| Islands | Score and population curves per island, with migrations. |
-| Ensembling | Posterior weight of each LLM over generations when model ensembling was on. |
-| Path | The lineage from the initial program to the best program. |
-| MAPs | A MAP-Elites style grid over two chosen metrics. |
+### Advanced page
 
-The right panel describes the selected program:
-
-| Tab | Content |
-|-----|---------|
-| Meta | Run overview: generations, correctness rate, best score, cost breakdown, score progression, and cumulative cost charts. |
-| Pareto | Pareto front over two chosen metrics. |
-| Scratch | The summarizer's meta scratchpad (`meta/meta_<count>.txt`) at each update, with a diff against the previous one and PDF export. |
-| Node | Metadata of the selected program: parent, inspirations, island, timings, feedback. |
-| Code | The program with syntax highlighting, copy, and download buttons. |
-| Diff | Diff against the parent or against the initial program, with a changes-only mode. |
-| Eval | Standard output and error of the evaluation, plus any plot images saved under `gen_<N>/results/plots/`. |
-| LLM | The raw LLM response that produced the patch. |
-| Analysis | Success and improvement rates by model and patch type, cost heatmaps, code size, and lineage fertility. |
-| Usage | Runtime timeline per generation, worker occupancy, and stage duration summaries. |
-
-The selected run, tabs, and node are kept in the URL, so a link can be
-shared or bookmarked. Panel widths are kept in `localStorage`.
-
-### Live runs
-
-The clock button in the header toggles auto-refresh. While it is on, the page
-polls a lightweight count endpoint every three seconds and reloads the data
-only when a program was added. The reload button fetches everything
-immediately.
+**Advanced** in the status strip opens the previous dashboard
+(`viz_tree.html`) with all of its tabs: Pareto fronts, MAP grids, clusters,
+embeddings, islands, ensembling, throughput, prompt evolution, the programs
+table, and the comparison page. Nothing was removed; it is just not the
+default any more.
 
 ---
 
@@ -157,7 +150,7 @@ directory; paths outside it are rejected with 403.
 | `/get_program_details` | `db_path`, `id` | One program with code. Failed proposals use ids of the form `failed:proposal:<generation>`. |
 | `/get_database_stats` | `db_path` | Aggregates for the landing page. Missing databases return `{"error": "not_found"}`. |
 | `/get_system_prompts` | `db_path` | Prompts from `prompts.sqlite` next to the database, or `[]`. |
-| `/get_meta_files` | `db_path` | Available meta scratchpad files. |
+| `/get_meta_files` | `db_path` | Available meta scratchpad files (`[]` when the run has none). |
 | `/get_meta_content` | `db_path`, `processed_count` | Content of one meta file. |
 | `/download_meta_pdf` | `db_path`, `processed_count` | The meta file as PDF (or text when no renderer is installed). |
 | `/get_plots` | `db_path`, `generation`, `program_id` | Plot images saved by the evaluation of that generation. |
@@ -171,10 +164,13 @@ Errors are JSON objects with `error` and `status` fields.
 
 ```
 shinka/webui/
-  index.html, viz_tree.html, compare.html   HTML shells
-  static/css/                               one stylesheet per page
+  index.html, run.html                      run list and run page (the default UI)
+  viz_tree.html, compare.html               the advanced dashboard
+  static/css/                               one stylesheet per page; run/*.css per run-page module
   static/js/index.js, compare.js            page modules
-  static/js/viz_tree/                       one ES module per tab or concern; main.js is the entry point
+  static/js/run/                            run page: main.js (state, URL), model.js (pure helpers),
+                                            api.js, theme.js, status.js, tree.js, program.js, overview.js
+  static/js/viz_tree/                       advanced dashboard, one ES module per tab or concern
   static/js/log.js                          debug logger (silent unless enabled)
   static/vendor/                            pinned third-party libraries (see README.md there)
   server/                                   HTTP server package
@@ -188,5 +184,6 @@ shinka/webui/
 
 The pages are plain ES modules with no build step. Tests live in
 `tests/webui/`: endpoint tests run against a synthetic results directory,
-and `test_browser.py` loads every page and tab in headless Chromium
+`test_run_model.py` runs the run page's pure helpers under node, and
+`test_browser.py` and `test_run_page.py` load every page in headless Chromium
 (`playwright install chromium` once to enable it).

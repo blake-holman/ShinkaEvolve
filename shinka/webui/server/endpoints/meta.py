@@ -62,7 +62,7 @@ def get_meta_files(ctx: ServerContext, query: Dict[str, str]) -> Response:
     db_file = resolve_database(ctx.search_root, query["db_path"])
     results_dir = results_dir_for(db_file)
     if not meta_dir_for(results_dir).is_dir():
-        raise NotFound("Meta directory not found")
+        return json_response([])
     return json_response(list_meta_files(results_dir))
 
 

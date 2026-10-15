@@ -19,7 +19,7 @@ logger = logging.getLogger("shinka.webui")
 
 Handler = Callable[[ServerContext, Dict[str, str]], Response]
 
-HTML_SHELLS = {"/", "/index.html", "/viz_tree.html", "/compare.html"}
+HTML_SHELLS = {"/", "/index.html", "/run.html", "/viz_tree.html", "/compare.html"}
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",

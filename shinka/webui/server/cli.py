@@ -71,7 +71,7 @@ def dashboard_url(host: str, port: int, db: Optional[str]) -> str:
     display_host = "localhost" if host in ("0.0.0.0", "", "::") else host
     base = f"http://{display_host}:{port}"
     if db:
-        return f"{base}/viz_tree.html?{urllib.parse.urlencode({'db_path': db})}"
+        return f"{base}/run.html?{urllib.parse.urlencode({'db_path': db})}"
     return f"{base}/"
 
 

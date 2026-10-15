@@ -89,11 +89,20 @@ def page(browser, server):
 
 def test_landing_page_lists_fixture_with_stats(page):
     page.goto(page.base + "/", wait_until="networkidle")
-    row = page.locator("input.result-checkbox").first
+    row = page.locator("tr.run-row").first
     row.wait_for(timeout=10_000)
-    page.wait_for_timeout(500)
+    page.locator("tr.run-row .pill").first.wait_for(timeout=10_000)
+    page.wait_for_timeout(300)
     text = page.locator("body").inner_text()
     assert "results_fixture" in text
+    assert "33 correct" in text
+    assert "Best score" in page.locator("#results-table thead").text_content()
+    assert page.locator("#loading-state").is_hidden()
+    assert page.locator("#empty-state").is_hidden()
+    assert page.locator("th#sort-updated").count() == 1
+    row.click()
+    page.wait_for_url("**/run.html?db_path=*", timeout=10_000)
+    assert "/run.html?db_path=" in page.url
     assert page.errors == []
 
 

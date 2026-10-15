@@ -254,6 +254,8 @@ export function loadDatabase(dbPath) {
     if (xSelect) xSelect.innerHTML = '';
 
     window.currentDbPath = dbPath;
+    const simpleViewLink = document.getElementById('simple-view-link');
+    if (simpleViewLink) simpleViewLink.href = `/run.html?db_path=${encodeURIComponent(dbPath)}`;
     
     if (window.isResizing) {
         debug("[DEBUG] Skipping DB loading during resize");

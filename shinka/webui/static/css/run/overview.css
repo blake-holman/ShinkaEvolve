@@ -1,0 +1,85 @@
+/* Styles for static/js/run/overview.js. Use the tokens defined in run.css. */
+
+.overview {
+    padding: var(--sp-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    min-width: 0;
+}
+.overview__body { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+
+.overview__header { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; }
+.overview__header h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; white-space: nowrap; }
+.overview__path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The best-score card is a button; keep it looking like the other cards. */
+button.overview__best {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+}
+button.overview__best:hover,
+button.overview__best:focus-visible { border-color: var(--accent); outline: none; }
+button.overview__best .stat__value { color: var(--accent); }
+.overview .stat__sub { overflow-wrap: anywhere; }
+
+.overview__chart-card h3 { margin: 0; font-size: var(--fs); font-weight: 600; }
+.overview__chart { height: 240px; min-width: 0; }
+
+/* Scratchpad: a card holding one collapsible section, so the section's own padding applies. */
+.overview__scratch { padding: 0; }
+.overview__scratch details.section { border-top: 0; }
+.overview__scratch-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+    font-size: var(--fs-sm);
+    color: var(--fg-muted);
+}
+.overview__select {
+    font: inherit;
+    font-size: var(--fs-sm);
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-elev);
+    color: var(--fg);
+}
+.overview__select:hover { border-color: var(--border-strong); }
+
+.overview .markdown { font-size: var(--fs-sm); line-height: 1.55; max-height: 70vh; overflow: auto; }
+.overview .markdown > :first-child { margin-top: 0; }
+.overview .markdown > :last-child { margin-bottom: 0; }
+.overview .markdown h1,
+.overview .markdown h2,
+.overview .markdown h3,
+.overview .markdown h4 { margin: var(--sp-4) 0 var(--sp-2); line-height: 1.3; font-weight: 600; }
+.overview .markdown h1 { font-size: var(--fs-lg); }
+.overview .markdown h2 { font-size: var(--fs); }
+.overview .markdown h3,
+.overview .markdown h4 { font-size: var(--fs-sm); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.overview .markdown p,
+.overview .markdown ul,
+.overview .markdown ol,
+.overview .markdown blockquote { margin: 0 0 var(--sp-2); }
+.overview .markdown ul,
+.overview .markdown ol { padding-left: var(--sp-5); }
+.overview .markdown blockquote { padding-left: var(--sp-3); border-left: 3px solid var(--border); color: var(--fg-muted); }
+.overview .markdown code { font-family: var(--mono); font-size: 0.95em; background: var(--code-bg); border-radius: 3px; padding: 0 3px; }
+.overview .markdown pre {
+    margin: 0 0 var(--sp-2);
+    padding: var(--sp-3);
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: auto;
+}
+.overview .markdown pre code { background: none; padding: 0; }
+.overview .markdown table { border-collapse: collapse; margin: 0 0 var(--sp-2); }
+.overview .markdown th,
+.overview .markdown td { border: 1px solid var(--border); padding: 2px 8px; text-align: left; }
+.overview .markdown hr { border: 0; border-top: 1px solid var(--border); margin: var(--sp-3) 0; }
