@@ -1,12 +1,11 @@
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-COMPARE_HTML = REPO_ROOT / "shinka" / "webui" / "compare.html"
+from webui_sources import compare_source
 
 
 def test_compare_best_score_only_uses_correct_programs():
-    html = COMPARE_HTML.read_text(encoding="utf-8")
+    html = compare_source()
 
     assert "function getBestCorrectScore(programs)" in html
     assert "let bestScore = Number.NEGATIVE_INFINITY;" in html

@@ -1,12 +1,11 @@
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-INDEX_HTML = REPO_ROOT / "shinka" / "webui" / "index.html"
+from webui_sources import index_source
 
 
 def test_dashboard_supports_sorting_by_setting():
-    html = INDEX_HTML.read_text(encoding="utf-8")
+    html = index_source()
 
     assert "onclick=\"toggleSort('setting')\"" in html
     assert "let currentSortKey = 'task';" in html
@@ -17,7 +16,7 @@ def test_dashboard_supports_sorting_by_setting():
 
 
 def test_dashboard_keeps_initial_generation_results_visible():
-    html = INDEX_HTML.read_text(encoding="utf-8")
+    html = index_source()
 
     assert "program_count <= 1" not in html
     assert "stats.program_count <= 0" in html

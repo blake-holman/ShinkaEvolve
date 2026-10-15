@@ -4,12 +4,11 @@ import subprocess
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-VIZ_TREE_HTML = REPO_ROOT / "shinka" / "webui" / "viz_tree.html"
+from webui_sources import viz_tree_js
 
 
 def _extract_js_function_source(function_name: str) -> str:
-    html = VIZ_TREE_HTML.read_text(encoding="utf-8")
+    html = viz_tree_js()
     match = re.search(rf"function {function_name}\([^)]*\)\s*\{{", html)
     assert match, f"Could not find function {function_name} in viz_tree.html"
 
@@ -119,7 +118,7 @@ def test_normalize_tree_roots_leaves_single_root_trees_unchanged():
 
 
 def test_model_posteriors_charts_leave_space_for_top_y_axis_tick():
-    html = VIZ_TREE_HTML.read_text(encoding="utf-8")
+    html = viz_tree_js()
 
     assert 'id="model-program-counts-chart" style="width: 100%; height: 340px;' in html
     assert 'id="model-posteriors-chart" style="width: 100%; height: 340px;' in html
