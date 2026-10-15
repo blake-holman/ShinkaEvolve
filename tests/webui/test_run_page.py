@@ -242,3 +242,81 @@ def test_unknown_database_shows_error(page):
     page.wait_for_timeout(500)
     assert "not found" in page.locator("#status-items").inner_text().lower()
     assert "Could not load" in page.locator("#panel").inner_text()
+
+
+def test_nodes_show_generation_numbers_without_axis(page):
+    open_run(page)
+    assert page.locator("#tree .tree-axis").count() == 0
+    labels = page.locator("#tree .tree-label")
+    assert labels.count() == page.locator("#tree g.tree-node").count()
+    texts = {labels.nth(i).text_content() for i in range(labels.count())}
+    assert {"0", "11"} <= texts
+    assert page.errors == []
+
+
+@pytest.fixture()
+def phone(browser, server):
+    base = f"http://127.0.0.1:{server.server_port}"
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844},
+        device_scale_factor=2,
+        is_mobile=True,
+        has_touch=True,
+    )
+    page = context.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.base = base
+    page.errors = errors
+    yield page
+    context.close()
+
+
+def panel_open(page):
+    return page.evaluate("document.body.classList.contains('is-panel-open')")
+
+
+def test_phone_shows_one_pane_at_a_time(phone):
+    open_run(phone)
+    assert not panel_open(phone)
+    assert not phone.locator("#panel").is_visible()
+    assert phone.locator("#tree svg").is_visible()
+    assert phone.evaluate("document.documentElement.scrollWidth") <= 390
+    phone.locator("#btn-best").tap()
+    phone.wait_for_timeout(800)
+    assert panel_open(phone) and phone.locator("#panel").is_visible()
+    assert "def solve" in phone.locator("#panel").inner_text()
+    assert phone.locator("#panel-back-title").inner_text().strip()
+    phone.go_back()
+    phone.wait_for_timeout(500)
+    assert not panel_open(phone)
+    phone.locator("#btn-run").tap()
+    phone.wait_for_timeout(800)
+    assert panel_open(phone) and "view=run" in phone.url
+    width = phone.evaluate(
+        "document.querySelector('#panel .js-plotly-plot').getBoundingClientRect().width"
+    )
+    assert width > 250
+    phone.locator("#btn-back").tap()
+    phone.wait_for_timeout(500)
+    assert not panel_open(phone) and "view=run" not in phone.url
+    assert phone.errors == []
+
+
+def test_phone_deep_link_opens_program(phone):
+    open_run(phone)
+    best = phone.evaluate("window.shinkaRun.state.model.best.id")
+    open_run(phone, f"&program={best}")
+    assert panel_open(phone)
+    phone.locator("#btn-back").tap()
+    phone.wait_for_timeout(500)
+    assert not panel_open(phone) and "program=" not in phone.url
+    assert phone.errors == []
+
+
+def test_phone_run_list_fits(phone):
+    phone.goto(phone.base + "/", wait_until="networkidle")
+    phone.locator(".run-row__name").first.wait_for(timeout=10_000)
+    assert phone.evaluate("document.documentElement.scrollWidth") <= 390
+    assert phone.locator("th", has_text="Cost").first.is_hidden()
+    assert phone.errors == []

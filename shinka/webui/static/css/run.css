@@ -263,6 +263,9 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
 
 .empty { padding: var(--sp-5); color: var(--fg-muted); text-align: center; }
 
+.label-short { display: none; }
+.panel-back { display: none; }
+
 .toast {
     position: fixed;
     bottom: var(--sp-4);
@@ -291,3 +294,68 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
     z-index: 5;
 }
 
+
+/* ---------- phones: one pane at a time ----------
+   The tree fills the screen. Opening a program or the overview slides the panel
+   over the tree with a back bar; the browser's back button closes it too. */
+@media (max-width: 760px) {
+    :root { --status-h: 92px; }
+    .status {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-rows: 44px 40px;
+        column-gap: var(--sp-3);
+        row-gap: 0;
+        padding: 0 var(--sp-3);
+        align-items: center;
+    }
+    .status__back { grid-row: 1; grid-column: 1; }
+    .status__name { grid-row: 1; grid-column: 2; max-width: none; min-width: 0; font-size: var(--fs); }
+    .status__actions { grid-row: 1; grid-column: 3; }
+    .status__items { grid-row: 2; grid-column: 1 / -1; height: 34px; column-gap: var(--sp-4); }
+    .status__item { height: 34px; }
+    #link-advanced { display: none; }
+    .label-long { display: none; }
+    .label-short { display: inline; }
+
+    .divider { display: none; }
+    /* !important: main.js sets the desktop tree width inline. */
+    .pane--tree { flex: 1 1 auto !important; }
+    .pane--panel {
+        display: none;
+        position: fixed;
+        top: calc(var(--status-h) + 44px);
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        border-left: 0;
+        -webkit-overflow-scrolling: touch;
+    }
+    .panel-back {
+        position: fixed;
+        top: var(--status-h);
+        left: 0;
+        right: 0;
+        height: 44px;
+        z-index: 21;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: 0 var(--sp-3);
+        background: var(--bg-elev);
+        border-bottom: 1px solid var(--border);
+    }
+    .panel-back__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    body.is-panel-open .pane--panel { display: block; }
+    body.is-panel-open .panel-back { display: flex; }
+
+    .pane__toolbar { padding: 0 var(--sp-2); gap: var(--sp-1); }
+    .legend { font-size: 10px; column-gap: var(--sp-3); padding: 2px var(--sp-2); left: var(--sp-2); bottom: var(--sp-2); }
+    .legend__hint { display: none; }
+    .btn { padding: 6px 10px; }
+}
+
+/* Touch screens: no hover, so no tooltip; nodes get a larger invisible tap target (see tree.css). */
+@media (hover: none) {
+    .tree-tooltip { display: none !important; }
+}

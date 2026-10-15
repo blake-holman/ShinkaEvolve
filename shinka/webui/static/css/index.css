@@ -248,4 +248,20 @@ kbd {
     .container { padding: var(--sp-3); }
     .search__hint, .header__text p { display: none; }
     .search input { width: 120px; }
+    /* Phones: the header wraps, and the search box takes its own row. */
+    .header { flex-wrap: wrap; row-gap: var(--sp-2); }
+    .header .spacer { display: none; }
+    .header__text { flex: 1 1 auto; }
+    .search { order: 10; flex: 1 1 100%; }
+    .search input { width: 100%; }
+    .header .btn:not(.btn--icon) { display: none; }
+    /* Phones keep Run, Status, Best score, and Updated; the rest is on the run page. */
+    .runs th:nth-child(n+4):nth-child(-n+7),
+    .runs td:nth-child(n+4):nth-child(-n+7):not([colspan]) { display: none; }
+    /* The name column takes whatever the other three leave and ends in an ellipsis. */
+    .runs th:first-child { width: 100%; }
+    .runs th, .runs td { padding: var(--sp-2) 6px; }
+    .runs th { font-size: 10px; }
+    .run-row__name { min-width: 0; }
+    .runs td[data-stat="best_score"] .muted { display: none; }
 }

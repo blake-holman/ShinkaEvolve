@@ -14,7 +14,7 @@
         <div class="status__name" id="status-name">Loading run&hellip;</div>
         <div class="status__items" id="status-items"></div>
         <div class="status__actions">
-            <button class="btn" id="btn-run" title="Show the run overview: score, cost, scratchpad (Esc)">Run overview</button>
+            <button class="btn" id="btn-run" title="Show the run overview: score, cost, scratchpad (Esc)"><span class="label-long">Run overview</span><span class="label-short">Overview</span></button>
             <a class="btn" id="link-advanced" href="#" title="Open the full dashboard with every tab">Advanced</a>
             <button class="btn btn--icon" id="btn-theme" title="Switch between light and dark theme" aria-label="Toggle theme">&#9680;</button>
         </div>
@@ -42,6 +42,11 @@
             </div>
         </section>
         <div id="divider" class="divider" role="separator" aria-orientation="vertical"></div>
+        <!-- Phones: the panel opens over the tree, under this bar. Hidden on wide screens. -->
+        <div id="panel-back" class="panel-back">
+            <button class="btn" id="btn-back" type="button">&larr; Tree</button>
+            <span class="panel-back__title" id="panel-back-title"></span>
+        </div>
         <section id="panel" class="pane pane--panel" aria-live="polite">
             <div class="empty" id="panel-empty">Loading&hellip;</div>
         </section>

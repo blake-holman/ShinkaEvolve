@@ -3,9 +3,13 @@
 // State lives here: the database path, the selected program, which nodes are
 // expanded, and whether the right pane shows a program or the run overview.
 // The URL mirrors the state (db_path, program) so links can be shared.
+//
+// On phones (PHONE_QUERY) only one pane shows at a time: the tree fills the
+// screen, and a program or the overview opens over it with a back bar. Each
+// opening pushes a history entry, so the browser's back button closes it.
 import { api } from "./api.js";
 import {
-    allExpanded, buildRunModel, collapseSubtree, defaultExpanded, escapeHtml, expandSubtree,
+    allExpanded, buildRunModel, collapseSubtree, defaultExpanded, displayName, escapeHtml, expandSubtree,
     expandTo, lineageOf, runStatus, visibleIds, visibleProgramCount,
 } from "./model.js";
 import { renderStatus, runLabel } from "./status.js";
@@ -20,6 +24,7 @@ const POLL_FAILURES_BEFORE_ERROR = 3;
 const DIVIDER_MIN_PX = 420;
 const PANEL_MIN_PX = 420;
 const TREE_WIDTH_KEY = "shinkaTreeWidth";
+const PHONE_QUERY = window.matchMedia("(max-width: 760px)");
 
 const state = {
     dbPath: null,
@@ -27,6 +32,7 @@ const state = {
     selectedId: null,
     expanded: new Set(),
     view: "overview", // "overview" | "program"
+    overviewOpen: false, // phones: the overview was opened explicitly (URL view=run)
     lastCount: null,
     lastTimestamp: null,
     pollFailures: 0,
@@ -40,6 +46,8 @@ const el = {
     btnRun: document.getElementById("btn-run"),
     linkAdvanced: document.getElementById("link-advanced"),
     btnTheme: document.getElementById("btn-theme"),
+    btnBack: document.getElementById("btn-back"),
+    backTitle: document.getElementById("panel-back-title"),
     btnBest: document.getElementById("btn-best"),
     btnExpand: document.getElementById("btn-expand"),
     btnCollapse: document.getElementById("btn-collapse"),
@@ -61,15 +69,27 @@ function readUrl() {
     state.dbPath = params.get("db_path");
     state.selectedId = params.get("program");
     state.view = state.selectedId ? "program" : "overview";
+    state.overviewOpen = !state.selectedId && params.get("view") === "run";
 }
 
-function writeUrl(replace = false) {
+/** opensPanel marks the entry so the phone back bar can return with history.back(). */
+function writeUrl(replace = false, { opensPanel = false } = {}) {
     const url = new URL(window.location.href);
     url.search = "";
     if (state.dbPath) url.searchParams.set("db_path", state.dbPath);
     if (state.view === "program" && state.selectedId) url.searchParams.set("program", state.selectedId);
+    else if (state.overviewOpen) url.searchParams.set("view", "run");
     const method = replace ? "replaceState" : "pushState";
-    if (url.href !== window.location.href) history[method]({}, "", url);
+    if (url.href !== window.location.href) history[method]({ shinkaPanel: opensPanel }, "", url);
+}
+
+function isPhone() {
+    return PHONE_QUERY.matches;
+}
+
+/** On phones the panel shows only for a selected program or an explicitly opened overview. */
+function panelOpen() {
+    return state.view === "program" || state.overviewOpen;
 }
 
 /** If the URL names a program this run does not have, say so once and fall back to the overview. */
@@ -102,12 +122,15 @@ function renderAll() {
         + (failed ? ` · ${failed} failed proposal${failed === 1 ? "" : "s"}` : "");
     const selectedId = state.view === "program" ? state.selectedId : null;
     tree.render(state.model, { selectedId, expanded: state.expanded });
-    renderPanel();
+    document.body.classList.toggle("is-panel-open", panelOpen());
+    // A hidden panel is not rendered; opening it re-renders through renderAll().
+    if (!isPhone() || panelOpen()) renderPanel();
 }
 
 function renderPanel() {
-    el.btnRun.classList.toggle("is-active", state.view === "overview");
+    el.btnRun.classList.toggle("is-active", state.view === "overview" && (!isPhone() || state.overviewOpen));
     const program = state.selectedId ? state.model.programs.get(state.selectedId) : null;
+    el.backTitle.textContent = state.view === "program" && program ? displayName(program) : "Run overview";
     const context = { model: state.model, dbPath: state.dbPath, api, onSelect: selectProgram };
     if (state.view === "program" && program) renderProgram(el.panel, { ...context, program });
     else renderOverview(el.panel, context);
@@ -124,19 +147,36 @@ function toast(message, ms = TOAST_MS) {
 
 function selectProgram(id, { reveal = true } = {}) {
     if (!state.model || !state.model.programs.has(id)) return;
+    const opensPanel = !panelOpen();
     state.selectedId = id;
     state.view = "program";
+    state.overviewOpen = false;
     if (reveal) {
         state.expanded = expandTo(state.model, state.expanded, id);
         tree.focus(id);
     }
-    writeUrl();
+    writeUrl(false, { opensPanel });
     renderAll();
 }
 
 function showOverview() {
+    const opensPanel = !panelOpen();
     state.view = "overview";
     state.selectedId = null;
+    state.overviewOpen = true;
+    writeUrl(false, { opensPanel });
+    renderAll();
+}
+
+/** Phone back bar: return to the tree, through history when this page opened the panel. */
+function closePanel() {
+    if (history.state && history.state.shinkaPanel) {
+        history.back();
+        return;
+    }
+    state.view = "overview";
+    state.selectedId = null;
+    state.overviewOpen = false;
     writeUrl();
     renderAll();
 }
@@ -262,6 +302,7 @@ function onKeyDown(event) {
     const key = event.key.toLowerCase();
     if (key === "b") { selectBest(); event.preventDefault(); return; }
     if (key === "f") { tree.fit(); event.preventDefault(); return; }
+    if (key === "escape" && isPhone() && panelOpen()) { closePanel(); event.preventDefault(); return; }
     if (key === "escape" && state.view === "program") { showOverview(); event.preventDefault(); return; }
     if (tree.handleKey(event, state.selectedId)) event.preventDefault();
 }
@@ -303,6 +344,8 @@ function init() {
     tree = createTree(el.tree, { onSelect: (id) => selectProgram(id, { reveal: false }), onToggle: toggleNode });
 
     el.btnRun.addEventListener("click", showOverview);
+    el.btnBack.addEventListener("click", closePanel);
+    PHONE_QUERY.addEventListener("change", () => { if (state.model) { renderAll(); tree.fit(); } });
     el.btnTheme.addEventListener("click", toggleTheme);
     el.btnBest.addEventListener("click", selectBest);
     el.btnExpand.addEventListener("click", expandAll);

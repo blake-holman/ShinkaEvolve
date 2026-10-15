@@ -15,6 +15,8 @@
 // Layout rules:
 //   - x position = generation (uniform spacing, generation 0 at the left);
 //     y positions come from a tree layout so children sit near their parent.
+//     Each node shows its generation number inside the dot; the numbers hide
+//     when the zoom makes the dots too small to read them.
 //   - Only ids in visibleIds(model, expanded) are drawn. A node with hidden
 //     descendants shows a "+N" pill counting all of them; its title names the
 //     programs and the failed proposals separately. An expanded node off
@@ -41,20 +43,21 @@ import {
 } from "./model.js";
 
 const COL_W = 64;            // horizontal distance between generations
-const ROW_H = 24;            // vertical distance between neighbouring rows before fit() spreads them
+const ROW_H = 28;            // vertical distance between neighbouring rows before fit() spreads them
 const MAX_ROW_SPREAD = 2;    // fit() spreads the rows of a short tree up to this multiple of ROW_H
-const R = 7;                 // node radius in screen px at zoom 1 and when zoomed out
+const R = 10;                // node radius in screen px at zoom 1 and when zoomed out (fits a 3-digit generation)
+const TOUCH_EXTRA = 8;       // extra tap radius around a node on touch screens
+const LABEL_MIN_R = 8;       // generation numbers show only while dots are at least this radius on screen
 const MIN_DOT_R = 1.5;       // smallest dot radius on screen, for whole-tree views
 const NODE_GAP_PX = 1;       // dots in neighbouring rows keep at least twice this apart on screen
 const EDGE_PAD = R + 8;      // screen space kept around the outermost node centres
-const AXIS_H = 22;           // height of the generation strip across the top
-const AXIS_CHAR_W = 6.5;     // width of one character of a "gen N" label (--fs-xs, tabular figures)
-const AXIS_LABEL_GAP = 6;    // free space kept between neighbouring generation labels
 const GRID_MIN_PX = 6;       // hide the generation grid when its lines would be closer than this
 const FIT_PAD = 24;
 const LEGEND_H = 30;         // legend overlap used when the legend cannot be measured
 const MAX_FIT_SCALE = 1.5;
 const MIN_FIT_SCALE = 0.4;   // fit() never goes below this (generations 25.6 px apart)
+const DARK_TEXT = "#1f2328";  // generation number on light fills
+const LIGHT_TEXT = "#ffffff"; // and on dark fills
 const MIN_SCALE = 0.005;     // the wheel can still zoom out to a whole long run
 const MAX_SCALE = 4;
 const PAN_TOLERANCE_PX = 3;  // a click that jitters less than this is not a pan
@@ -76,7 +79,6 @@ const LINK = d3.linkHorizontal().x((d) => d.x).y((d) => d.y);
 const MARKUP = `
 <svg class="tree-svg" role="img" aria-label="Program tree">
     <g class="tree-canvas"><g class="tree-grid"></g><g class="tree-edges"></g><g class="tree-nodes"></g></g>
-    <g class="tree-axis"><rect class="tree-axis__bg" width="100%" height="${AXIS_H}"></rect><g class="tree-axis__labels"></g></g>
 </svg>
 <div class="tree-empty empty" hidden></div>
 <div class="tooltip tree-tooltip" hidden></div>`;
@@ -92,7 +94,7 @@ export function createTree(container, { onSelect = () => {}, onToggle = () => {}
         empty: container.querySelector(".tree-empty"),
         model: null, selectedId: null, expanded: new Set(),
         nodes: new Map(), bounds: null, gens: [], hoveredId: null, pendingFocus: null,
-        width: rect.width, height: rect.height, labelW: 0, gridHidden: false,
+        width: rect.width, height: rect.height, gridHidden: false,
         touched: false, gestureStart: null, rowH: ROW_H, glyph: null,
     };
     view.canvas = view.svg.select(".tree-canvas");
@@ -108,7 +110,6 @@ export function createTree(container, { onSelect = () => {}, onToggle = () => {}
     view.resize = new ResizeObserver(([entry]) => {
         view.width = entry.contentRect.width;
         view.height = entry.contentRect.height;
-        positionAxis(view, d3.zoomTransform(view.svg.node()));
     });
     view.resize.observe(container);
     updateGlyphs(view, 1);
@@ -129,7 +130,7 @@ export function createTree(container, { onSelect = () => {}, onToggle = () => {}
 
 function onZoom(view, event) {
     const t = event.transform;
-    positionAxis(view, t);
+    updateGrid(view, t.k);
     updateGlyphs(view, t.k);
     view.canvas.attr("transform", t);
     // Programmatic moves (fit, focus) have no sourceEvent; only the user's own pan or zoom counts.
@@ -155,7 +156,6 @@ function render(view, model, state) {
     view.bounds = bounds(nodes, view.rowH);
     view.gens = nodes.length ? d3.range(d3.min(nodes, (n) => n.gen), d3.max(nodes, (n) => n.gen) + 1) : [];
     drawGrid(view);
-    drawAxis(view);
     view.empty.hidden = nodes.length > 0;
     view.empty.textContent = model.programs.size ? "Nothing to show" : "No programs in this run yet";
     if (view.pendingFocus !== null) revealNode(view, view.pendingFocus);
@@ -258,6 +258,16 @@ function dotClass(program) {
     return Number.isFinite(scoreOf(program)) ? "tree-dot" : "tree-dot is-unscored";
 }
 
+/** Readable number colour on a computed fill; null leaves it to tree.css (unscored, incorrect, failed). */
+function labelColour(fill) {
+    if (!fill) return null;
+    const { r, g, b } = d3.rgb(fill);
+    const lin = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    // Pick the text colour with the higher contrast ratio (DARK_TEXT luminance is about 0.016).
+    return (luminance + 0.05) / 0.066 > 1.05 / (luminance + 0.05) ? DARK_TEXT : LIGHT_TEXT;
+}
+
 function maybeAnimate(selection, animate) {
     return animate ? selection.transition().duration(200) : selection;
 }
@@ -278,7 +288,10 @@ function drawNodes(view, nodes, colour, animate) {
     const groups = view.nodeLayer.selectAll("g.tree-node").data(nodes, (d) => d.id)
         .join((enter) => {
             const g = enter.append("g").attr("class", "tree-node").attr("transform", (d) => `translate(${d.x},${d.y})`);
+            // Invisible, larger tap target; only active on coarse pointers (tree.css).
+            g.append("circle").attr("class", "tree-hit").attr("r", R + TOUCH_EXTRA);
             g.append("circle").attr("class", "tree-dot").attr("r", R);
+            g.append("text").attr("class", "tree-label");
             g.on("click", (event, d) => { event.stopPropagation(); view.onSelect(d.id); })
                 .on("mouseenter", (event, d) => enterNode(view, event, d))
                 .on("mousemove", (event) => placeTooltip(view, event))
@@ -290,11 +303,16 @@ function drawNodes(view, nodes, colour, animate) {
     groups.select(".tree-dot")
         .attr("class", (d) => dotClass(d.program))
         .attr("fill", (d) => colour(d.program));
+    groups.select(".tree-label")
+        .attr("class", (d) => `tree-label tree-label--${Math.min(4, String(d.gen).length)}`)
+        // Inline style: a stylesheet fill would override a fill attribute.
+        .style("fill", (d) => labelColour(colour(d.program)))
+        .text((d) => d.gen);
     groups.selectAll("circle.tree-ring")
         .data((d) => [d.id === bestId && "best", d.id === view.selectedId && "selected"].filter(Boolean), (kind) => kind)
         .join((enter) => enter.append("circle")
             .attr("class", (kind) => `tree-ring tree-ring--${kind}`)
-            .attr("r", (kind) => (kind === "best" ? R + 3.5 : R + 7)));
+            .attr("r", (kind) => (kind === "best" ? R + 3 : R + 5.5)));
     drawPills(view, groups);
 }
 
@@ -380,6 +398,7 @@ function updateGlyphs(view, k) {
     const node = Math.max(k, MIN_DOT_R / R, Math.min(1, (rowPx / 2 - NODE_GAP_PX) / R));
     const readable = Math.min(1, Math.max(PILL_MIN_SCALE, (view.rowH * Math.max(k, MIN_FIT_SCALE)) / PILL_H));
     const next = [node / k, (readable * Math.min(1, k / MIN_FIT_SCALE)) / k];
+    view.nodeLayer.classed("tree-nodes--no-labels", R * node < LABEL_MIN_R);
     if (view.glyph && next.every((v, i) => Math.abs(v / view.glyph[i] - 1) < GLYPH_STEP)) return;
     view.glyph = next;
     // On the node layer only: a variable change restyles every element below it.
@@ -389,42 +408,12 @@ function updateGlyphs(view, k) {
     style.setProperty("--tree-pill-x", `${R * next[0]}px`);
 }
 
-function drawAxis(view) {
-    view.svg.select(".tree-axis").style("display", view.gens.length ? null : "none");
-    const digits = String(view.gens.length ? view.gens[view.gens.length - 1] : 0).length;
-    view.labelW = AXIS_CHAR_W * ("gen ".length + digits) + AXIS_LABEL_GAP;
-    view.svg.select(".tree-axis__labels").selectAll("text").data(view.gens, (g) => g).join("text")
-        .attr("y", 15).text((g) => `gen ${g}`);
-    positionAxis(view, d3.zoomTransform(view.svg.node()));
-}
-
-/** Smallest of 1, 2, 5, 10, 20, 50, ... that is at least `raw`. */
-function niceStep(raw) {
-    if (raw <= 1) return 1;
-    const power = 10 ** Math.floor(Math.log10(raw));
-    return [1, 2, 5, 10].map((m) => m * power).find((s) => s >= raw);
-}
-
-/**
- * The generation labels stay at the top of the pane and follow the horizontal
- * pan and zoom. Only attributes are written here (the pane width is cached), so
- * a zoom frame does not force a layout.
- */
-function positionAxis(view, t) {
-    const colPx = t.k * COL_W;
-    const step = niceStep(view.labelW / colPx);
-    const half = view.labelW / 2;
-    view.svg.select(".tree-axis__labels").selectAll("text")
-        .attr("x", (g) => t.applyX(g * COL_W))
-        .attr("display", (g) => {
-            const x = t.applyX(g * COL_W);
-            return g % step === 0 && x > -half && x < view.width + half ? null : "none";
-        });
-    const gridHidden = colPx < GRID_MIN_PX;
-    if (gridHidden !== view.gridHidden) {
-        view.gridHidden = gridHidden;
-        view.grid.attr("display", gridHidden ? "none" : null);
-    }
+/** Hide the generation grid when its lines would crowd together. */
+function updateGrid(view, k) {
+    const gridHidden = k * COL_W < GRID_MIN_PX;
+    if (gridHidden === view.gridHidden) return;
+    view.gridHidden = gridHidden;
+    view.grid.attr("display", gridHidden ? "none" : null);
 }
 
 // ---------- pan and zoom ----------
@@ -459,7 +448,7 @@ function fit(view, { whole = false } = {}) {
     // The box the node centres must stay in.
     const box = {
         left: FIT_PAD + EDGE_PAD, right: Math.max(FIT_PAD + EDGE_PAD, rect.width - FIT_PAD - EDGE_PAD - b.rightPx),
-        top: AXIS_H + FIT_PAD + EDGE_PAD, bottom: Math.max(AXIS_H + FIT_PAD + EDGE_PAD, rect.height - legendOverlap(view, rect) - FIT_PAD - EDGE_PAD),
+        top: FIT_PAD + EDGE_PAD, bottom: Math.max(FIT_PAD + EDGE_PAD, rect.height - legendOverlap(view, rect) - FIT_PAD - EDGE_PAD),
     };
     const w = box.right - box.left, h = box.bottom - box.top;
     const kx = b.x1 > b.x0 ? w / (b.x1 - b.x0) : Infinity;
@@ -518,8 +507,8 @@ function revealNode(view, id) {
     const t = d3.zoomTransform(view.svg.node());
     const [px, py] = t.apply([node.x, node.y]);
     const m = REVEAL_MARGIN;
-    if (px >= m && px <= width - m && py >= AXIS_H + m && py <= height - m) return;
-    const next = d3.zoomIdentity.translate(width / 2 - t.k * node.x, (height + AXIS_H) / 2 - t.k * node.y).scale(t.k);
+    if (px >= m && px <= width - m && py >= m && py <= height - m) return;
+    const next = d3.zoomIdentity.translate(width / 2 - t.k * node.x, height / 2 - t.k * node.y).scale(t.k);
     // The view no longer shows the last fit, so a refresh must not refit it away from this node.
     view.touched = true;
     applyTransform(view, next, true);
