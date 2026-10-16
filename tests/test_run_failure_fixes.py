@@ -59,6 +59,16 @@ class _Lease:
         self.worker = {"name": "w", "agents": agents}
 
 
+def test_worker_agent_allowlist_overrides_single_model_selection():
+    # A selector that picks Opus outright must not run it on a codex-only worker.
+    names = ["headless/codex@a", "headless/codex@b", "headless/claude@opus"]
+    token = current_worker.set(_Lease(["codex"]))
+    try:
+        assert restrict_to_worker_agents(names, [0.0, 0.0, 1.0]) == [0.5, 0.5, 0.0]
+    finally:
+        current_worker.reset(token)
+
+
 def test_worker_agent_allowlist_masks_models():
     names = ["headless/codex@gpt", "headless/claude@opus", "plain-model"]
     token = current_worker.set(_Lease(["codex"]))

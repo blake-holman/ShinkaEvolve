@@ -30,8 +30,10 @@ def restrict_to_worker_agents(model_names, probabilities):
 
     A worker config may list ``agents`` (for example ``[codex]``); Headless
     model names have the form ``headless/<agent>@<model>``. Models without an
-    agent prefix are unaffected. Returns ``probabilities`` unchanged when no
-    restriction applies or when it would exclude every model.
+    agent prefix are unaffected. If the given weights put nothing on an allowed
+    model (a selector may pick a single model), the allowed models are sampled
+    uniformly instead. Returns ``probabilities`` unchanged when no restriction
+    applies or when the worker can run none of the models.
     """
     try:
         from shinka.core.workers import current_worker
@@ -49,6 +51,8 @@ def restrict_to_worker_agents(model_names, probabilities):
         return name[len("headless/"):].split("@", 1)[0] in agents
 
     masked = [p if allowed(n) else 0.0 for n, p in zip(model_names, base)]
+    if sum(masked) <= 0:
+        masked = [1.0 if allowed(n) else 0.0 for n in model_names]
     total = sum(masked)
     if total <= 0:
         return probabilities
