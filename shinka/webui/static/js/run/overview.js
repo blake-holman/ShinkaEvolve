@@ -25,7 +25,7 @@
 // place, so a refresh never flickers and never resets the scratchpad choice
 // or the open/closed state of the section.
 import { correctPercent, displayName, escapeHtml, formatCost, formatDuration, formatScore } from "./model.js";
-import { PLOTLY_CONFIG, currentTheme, onThemeChange, plotlyLayout, themeColors } from "./theme.js";
+import { PLOTLY_CONFIG, currentTheme, onThemeChange, plotlyLayout, themeColors, touchSafeAxes } from "./theme.js";
 
 const views = new WeakMap(); // container -> view
 const MAX_MARKDOWN_CHARS = 200000;
@@ -133,6 +133,13 @@ function bindControls(view) {
 function observeView(view, container) {
     // The divider does not fire a window resize, so watch the chart boxes themselves.
     view.resizeObserver = new ResizeObserver(() => {
+        // Crossing the narrow width changes the layout itself (legend, titles, ticks), not just the size.
+        const width = view.el.score.clientWidth;
+        if (view.model && view.el.score.offsetParent !== null
+            && (chartIsNarrow(width) !== view.narrow || maxTicksFor(width) !== view.maxTicks)) {
+            renderCharts(view, view.model);
+            return;
+        }
         for (const gd of [view.el.score, view.el.cost]) {
             // Plotly rejects a resize of a hidden or detached chart; those are resized on the next render.
             if (gd._fullLayout && gd.offsetParent !== null) Plotly.Plots.resize(gd).catch(() => {});
@@ -191,19 +198,38 @@ function renderCards(view, model) {
 // ---------- charts ----------
 
 /** Tick step that keeps at most about twelve integer ticks on the generation axis. */
-function generationStep(maxGeneration) {
-    for (const step of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]) {
-        if (maxGeneration / step <= 12) return step;
-    }
-    return Math.ceil(maxGeneration / 12);
+const NARROW_CHART_PX = 520; // below this chart width, use the compact layout
+const TICK_SPACING_PX = 44;   // room per generation tick label
+const MAX_MARKED_GENERATIONS = 60;
+
+function maxTicksFor(width) {
+    return width ? Math.max(3, Math.min(12, Math.floor(width / TICK_SPACING_PX))) : 12;
 }
 
-function generationAxis(base, maxGeneration, colors) {
+function generationStep(maxGeneration, maxTicks = 12) {
+    for (const step of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]) {
+        if (maxGeneration / step <= maxTicks) return step;
+    }
+    return Math.ceil(maxGeneration / maxTicks);
+}
+
+function generationAxis(base, maxGeneration, colors, width) {
+    const maxTicks = maxTicksFor(width);
     return {
         ...base,
         title: { text: "Generation", font: { color: colors.fgMuted, size: 12 } },
-        tickmode: "linear", tick0: 0, dtick: generationStep(maxGeneration),
+        tickmode: "linear", tick0: 0, dtick: generationStep(maxGeneration, maxTicks), tickangle: 0,
         range: [-0.5, maxGeneration + 0.5],
+    };
+}
+
+/** Narrow charts: legend under the plot, shorter titles, smaller margins. */
+function compact(layout, width) {
+    if (!width || width >= NARROW_CHART_PX) return layout;
+    return {
+        ...layout,
+        margin: { l: 44, r: layout.yaxis2 ? 44 : 12, t: 8, b: 72 },
+        legend: { ...layout.legend, orientation: "h", x: 0, y: -0.32, yanchor: "top" },
     };
 }
 
@@ -259,20 +285,22 @@ function scoreTraces(model, colors) {
     ];
 }
 
-function scoreLayout(model, colors) {
+function scoreLayout(model, colors, width) {
     const base = plotlyLayout();
-    return {
+    return compact({
         ...base,
         margin: { l: 56, r: 16, t: 24, b: 44 },
         hovermode: "closest",
         legend: { ...base.legend, y: 1.18 },
-        xaxis: generationAxis(base.xaxis, model.maxGeneration, colors),
+        xaxis: generationAxis(base.xaxis, model.maxGeneration, colors, width),
         yaxis: { ...base.yaxis, title: { text: "Score", font: { color: colors.fgMuted, size: 12 } } },
-    };
+    }, width);
 }
 
 function costTraces(model, colors) {
     const x = model.generations.map((g) => g.generation);
+    // Markers on hundreds of generations merge into a band; draw the line alone then.
+    const markers = model.generations.length <= MAX_MARKED_GENERATIONS;
     return [
         {
             type: "bar", name: "Per generation",
@@ -281,7 +309,7 @@ function costTraces(model, colors) {
             hovertemplate: "gen %{x}: $%{y:.4f}",
         },
         {
-            type: "scatter", mode: "lines+markers", name: "Cumulative", yaxis: "y2",
+            type: "scatter", mode: markers ? "lines+markers" : "lines", name: "Cumulative", yaxis: "y2",
             x, y: model.generations.map((g) => g.cumulativeCost),
             line: { color: colors.accent, width: 2, shape: "linear" },
             marker: { size: 6, color: colors.accent, line: { color: colors.bgElev, width: 1.5 } },
@@ -290,31 +318,39 @@ function costTraces(model, colors) {
     ];
 }
 
-function costLayout(model, colors) {
+function costLayout(model, colors, width) {
     const base = plotlyLayout();
     const titleFont = { color: colors.fgMuted, size: 12 };
-    return {
+    const narrow = width && width < NARROW_CHART_PX;
+    return compact({
         ...base,
         margin: { l: 64, r: 64, t: 24, b: 44 },
         hovermode: "closest",
         bargap: model.maxGeneration > 100 ? 0.15 : 0.4, // hundreds of thin bars with wide gaps shimmer
         legend: { ...base.legend, y: 1.18 },
-        xaxis: generationAxis(base.xaxis, model.maxGeneration, colors),
-        yaxis: { ...base.yaxis, title: { text: "Cost per generation", font: titleFont }, tickprefix: "$", rangemode: "tozero" },
+        xaxis: generationAxis(base.xaxis, model.maxGeneration, colors, width),
+        yaxis: { ...base.yaxis, title: { text: narrow ? "" : "Cost per generation", font: titleFont }, tickprefix: "$", rangemode: "tozero" },
         yaxis2: {
-            ...base.yaxis, title: { text: "Cumulative cost", font: titleFont }, tickprefix: "$", rangemode: "tozero",
+            ...base.yaxis, title: { text: narrow ? "" : "Cumulative cost", font: titleFont }, tickprefix: "$", rangemode: "tozero",
             overlaying: "y", side: "right", showgrid: false,
         },
-    };
+    }, width);
 }
 
 function renderCharts(view, model) {
     const colors = themeColors();
+    const width = view.el.score.clientWidth;
     view.theme = currentTheme();
     view.model = model;
-    Plotly.react(view.el.score, scoreTraces(model, colors), scoreLayout(model, colors), PLOTLY_CONFIG);
-    Plotly.react(view.el.cost, costTraces(model, colors), costLayout(model, colors), PLOTLY_CONFIG);
+    view.narrow = chartIsNarrow(width);
+    view.maxTicks = maxTicksFor(width);
+    Plotly.react(view.el.score, scoreTraces(model, colors), touchSafeAxes(scoreLayout(model, colors, width)), PLOTLY_CONFIG);
+    Plotly.react(view.el.cost, costTraces(model, colors), touchSafeAxes(costLayout(model, colors, width)), PLOTLY_CONFIG);
     bindScoreChart(view);
+}
+
+function chartIsNarrow(width) {
+    return width > 0 && width < NARROW_CHART_PX;
 }
 
 /** Clicking a score point opens its program. Plotly adds gd.on during the first render. */

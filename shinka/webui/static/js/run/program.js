@@ -34,12 +34,14 @@
 //       program.id), and must not re-run highlight.js or the diff.
 //     - Everything user-visible is passed through escapeHtml except
 //       highlighted code and the diff, which are built from escaped text.
+import { SINGLE_PANE_MEDIA } from "./theme.js";
 import {
     displayName, modelName, patchWords, failureText, isFailedProposal, isCorrect, parentOf, programCost,
     scoreDelta, deltaClass, formatScore, formatDelta, formatCost, formatDuration, formatTimestamp, escapeHtml,
 } from "./model.js";
 
 const LOG_CAP = 20000;          // characters rendered per log
+const LOG_CAP_SINGLE_PANE = 4000; // on phones the log is part of the page scroll, so keep it short
 const HIGHLIGHT_CAP = 200000;   // characters above which code is shown without highlighting
 const CONTEXT_LINES = 3;
 const FAILURE_TEXT_MAX = 500;   // characters of the failure reason in the header banner
@@ -503,10 +505,11 @@ function logBlock(label, text) {
 
 /** The tail of a long log, starting at a line boundary, and a note saying how much of it is shown. */
 function capLog(body) {
-    if (body.length <= LOG_CAP) return { shown: body, note: "" };
-    const tail = body.slice(-LOG_CAP);
+    const cap = window.matchMedia(SINGLE_PANE_MEDIA).matches ? LOG_CAP_SINGLE_PANE : LOG_CAP;
+    if (body.length <= cap) return { shown: body, note: "" };
+    const tail = body.slice(-cap);
     const cut = tail.indexOf("\n");
-    if (cut === -1) return { shown: tail, note: `showing the last ${LOG_CAP.toLocaleString()} of ${body.length.toLocaleString()} characters` };
+    if (cut === -1) return { shown: tail, note: `showing the last ${cap.toLocaleString()} of ${body.length.toLocaleString()} characters` };
     const shown = tail.slice(cut + 1);
     return { shown, note: `showing the last ${countLines(shown).toLocaleString()} of ${countLines(body).toLocaleString()} lines` };
 }

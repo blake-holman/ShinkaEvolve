@@ -45,9 +45,10 @@ import {
 const COL_W = 64;            // horizontal distance between generations
 const ROW_H = 28;            // vertical distance between neighbouring rows before fit() spreads them
 const MAX_ROW_SPREAD = 2;    // fit() spreads the rows of a short tree up to this multiple of ROW_H
+const MAX_ROW_SPREAD_FOR_DOTS = 2.5; // and spaces rows up to this multiple so dots stay full size
 const R = 10;                // node radius in screen px at zoom 1 and when zoomed out (fits a 3-digit generation)
-const TOUCH_EXTRA = 8;       // extra tap radius around a node on touch screens
 const LABEL_MIN_R = 8;       // generation numbers show only while dots are at least this radius on screen
+const LONG_LABEL_MIN_R = 9.5; // three- and four-digit numbers (smaller font) need a little more
 const MIN_DOT_R = 1.5;       // smallest dot radius on screen, for whole-tree views
 const NODE_GAP_PX = 1;       // dots in neighbouring rows keep at least twice this apart on screen
 const EDGE_PAD = R + 8;      // screen space kept around the outermost node centres
@@ -62,7 +63,9 @@ const MIN_SCALE = 0.005;     // the wheel can still zoom out to a whole long run
 const MAX_SCALE = 4;
 const PAN_TOLERANCE_PX = 3;  // a click that jitters less than this is not a pan
 const ANIMATE_LIMIT = 800;   // animate position changes only below this many nodes
-const PILL_GAP = 5;          // between the dot and its pill
+const PILL_GAP = 5;          // between the selected ring and the pill
+const SELECTED_RING_R = R + 5.5;
+const PILL_OFFSET = SELECTED_RING_R + 1.5; // pills start outside the selected ring (radius plus half its stroke)
 const PILL_H = 14;
 const PILL_PAD = 10;         // pill width = PILL_PAD + PILL_CHAR_W per character
 const PILL_CHAR_W = 6.5;     // of the 10px bold pill font set in tree.css
@@ -95,7 +98,7 @@ export function createTree(container, { onSelect = () => {}, onToggle = () => {}
         model: null, selectedId: null, expanded: new Set(),
         nodes: new Map(), bounds: null, gens: [], hoveredId: null, pendingFocus: null,
         width: rect.width, height: rect.height, gridHidden: false,
-        touched: false, gestureStart: null, rowH: ROW_H, glyph: null,
+        touched: false, gestureStart: null, rowH: ROW_H, glyph: null, bridgeX: -(PILL_OFFSET - R) - 1,
     };
     view.canvas = view.svg.select(".tree-canvas");
     view.grid = view.canvas.select(".tree-grid");
@@ -205,7 +208,7 @@ function layout(model, expanded, rowH) {
  * where columns are narrowest on screen (below that scale the pill shrinks with the zoom).
  */
 function reservePillRow(node) {
-    const columns = Math.ceil((2 * R + PILL_GAP + node.pill.width) / (COL_W * MIN_FIT_SCALE) - 1);
+    const columns = Math.ceil((R + PILL_OFFSET + PILL_GAP + node.pill.width) / (COL_W * MIN_FIT_SCALE) - 1);
     let holder = node;
     for (let i = 0; i < Math.max(1, columns); i++) {
         const spacer = { children: [] };
@@ -288,14 +291,14 @@ function drawNodes(view, nodes, colour, animate) {
     const groups = view.nodeLayer.selectAll("g.tree-node").data(nodes, (d) => d.id)
         .join((enter) => {
             const g = enter.append("g").attr("class", "tree-node").attr("transform", (d) => `translate(${d.x},${d.y})`);
-            // Invisible, larger tap target; only active on coarse pointers (tree.css).
-            g.append("circle").attr("class", "tree-hit").attr("r", R + TOUCH_EXTRA);
             g.append("circle").attr("class", "tree-dot").attr("r", R);
             g.append("text").attr("class", "tree-label");
-            g.on("click", (event, d) => { event.stopPropagation(); view.onSelect(d.id); })
-                .on("mouseenter", (event, d) => enterNode(view, event, d))
-                .on("mousemove", (event) => placeTooltip(view, event))
-                .on("mouseleave", () => leaveNode(view));
+            // Pointer events with a mouse check: touch taps would otherwise leave a hover
+            // (and its "−" pill) stuck on the node, since a tap sends no mouseleave.
+            g.on("click", (event, d) => { event.stopPropagation(); if (view.hoveredId !== null && event.pointerType !== "mouse") leaveNode(view); view.onSelect(d.id); })
+                .on("pointerenter", (event, d) => { if (event.pointerType === "mouse") enterNode(view, event, d); })
+                .on("pointermove", (event) => { if (event.pointerType === "mouse") placeTooltip(view, event); })
+                .on("pointerleave", (event) => { if (event.pointerType === "mouse") leaveNode(view); });
             return g;
         });
     groups.each(function (d) { d.el = this; });
@@ -312,7 +315,7 @@ function drawNodes(view, nodes, colour, animate) {
         .data((d) => [d.id === bestId && "best", d.id === view.selectedId && "selected"].filter(Boolean), (kind) => kind)
         .join((enter) => enter.append("circle")
             .attr("class", (kind) => `tree-ring tree-ring--${kind}`)
-            .attr("r", (kind) => (kind === "best" ? R + 3 : R + 5.5)));
+            .attr("r", (kind) => (kind === "best" ? R + 3 : SELECTED_RING_R)));
     drawPills(view, groups);
 }
 
@@ -328,13 +331,25 @@ function drawPills(view, groups) {
 function buildPill(g, view) {
     g.append("title");
     // Invisible bridge over the gap so the hover survives the move from dot to pill.
-    g.append("rect").attr("class", "tree-pill__bridge").attr("x", -1).attr("y", -PILL_H / 2).attr("width", PILL_GAP + 1).attr("height", PILL_H);
+    // It starts just inside the dot's edge and reaches the pill box; updateGlyphs() keeps
+    // it there as the zoom changes the dot and pill scales.
+    g.append("rect").attr("class", "tree-pill__bridge").attr("y", -PILL_H / 2).attr("height", PILL_H).call(placeBridge, view.bridgeX);
     g.append("rect").attr("class", "tree-pill__box").attr("x", PILL_GAP).attr("y", -PILL_H / 2).attr("height", PILL_H).attr("rx", PILL_H / 2);
     g.append("text").attr("y", 0);
     // The pill has its own title, so the node tooltip steps aside while the pointer is on it.
-    g.on("mouseenter", () => { view.tooltip.hidden = true; })
-        .on("mouseleave", (event) => showTooltip(view, event))
-        .on("click", (event, p) => { event.stopPropagation(); hideTooltip(view); view.onToggle(p.id); });
+    g.on("pointerenter", (event) => { if (event.pointerType === "mouse") view.tooltip.hidden = true; })
+        .on("pointerleave", (event) => { if (event.pointerType === "mouse") showTooltip(view, event); })
+        .on("click", (event, p) => {
+            event.stopPropagation();
+            leaveNode(view);
+            // Browsers move inexact taps onto nearby targets; a touch on the bridge was meant for the dot.
+            if (event.pointerType !== "mouse" && event.target.classList.contains("tree-pill__bridge")) view.onSelect(p.id);
+            else view.onToggle(p.id);
+        });
+}
+
+function placeBridge(rect, x) {
+    rect.attr("x", x).attr("width", PILL_GAP - x);
 }
 
 function updatePill(pills) {
@@ -360,7 +375,7 @@ function bounds(nodes, rowH) {
     if (!nodes.length) return null;
     const b = { x0: d3.min(nodes, (n) => n.x), x1: d3.max(nodes, (n) => n.x), y0: d3.min(nodes, (n) => n.y), y1: d3.max(nodes, (n) => n.y) };
     b.rows = (b.y1 - b.y0) / rowH;
-    const reach = (n) => (n.x === b.x1 && n.pill && n.pill.kind === "more" ? R + PILL_GAP + n.pill.width - EDGE_PAD : 0);
+    const reach = (n) => (n.x === b.x1 && n.pill && n.pill.kind === "more" ? PILL_OFFSET + PILL_GAP + n.pill.width - EDGE_PAD : 0);
     b.rightPx = Math.max(0, d3.max(nodes, reach));
     return b;
 }
@@ -398,14 +413,19 @@ function updateGlyphs(view, k) {
     const node = Math.max(k, MIN_DOT_R / R, Math.min(1, (rowPx / 2 - NODE_GAP_PX) / R));
     const readable = Math.min(1, Math.max(PILL_MIN_SCALE, (view.rowH * Math.max(k, MIN_FIT_SCALE)) / PILL_H));
     const next = [node / k, (readable * Math.min(1, k / MIN_FIT_SCALE)) / k];
-    view.nodeLayer.classed("tree-nodes--no-labels", R * node < LABEL_MIN_R);
+    view.nodeLayer.classed("tree-nodes--no-labels", R * node < LABEL_MIN_R)
+        .classed("tree-nodes--no-long-labels", R * node < LONG_LABEL_MIN_R);
     if (view.glyph && next.every((v, i) => Math.abs(v / view.glyph[i] - 1) < GLYPH_STEP)) return;
     view.glyph = next;
     // On the node layer only: a variable change restyles every element below it.
     const style = view.nodeLayer.node().style;
     style.setProperty("--tree-node-scale", String(next[0]));
     style.setProperty("--tree-pill-scale", String(next[1]));
-    style.setProperty("--tree-pill-x", `${R * next[0]}px`);
+    style.setProperty("--tree-pill-x", `${PILL_OFFSET * next[0]}px`);
+    // The dot's edge in the pill's own (translated and scaled) coordinates, less one unit of overlap.
+    view.bridgeX = -((PILL_OFFSET - R) * next[0]) / next[1] - 1;
+    view.nodeLayer.selectAll(".tree-pill__bridge").call(placeBridge, view.bridgeX);
+    if (view.lessPill) view.lessPill.select(".tree-pill__bridge").call(placeBridge, view.bridgeX);
 }
 
 /** Hide the generation grid when its lines would crowd together. */
@@ -457,7 +477,9 @@ function fit(view, { whole = false } = {}) {
     const tx = k * (b.x1 - b.x0) <= w ? (box.left + box.right - k * (b.x0 + b.x1)) / 2 : box.right - k * b.x1;
     // Spread the rows in view into the height the zoom leaves free (none when the height sets the zoom).
     const rows = k < MAX_FIT_SCALE ? rowSpan(view, k, tx) : 0;
-    const spread = rows > 0 ? Math.min(MAX_ROW_SPREAD, Math.max(1, h / (k * rows * ROW_H))) : 1;
+    // A readable fit also spaces rows far enough apart for full-size, numbered dots.
+    const minSpread = whole ? 1 : Math.min(MAX_ROW_SPREAD_FOR_DOTS, Math.max(1, (2 * (R + NODE_GAP_PX)) / (k * ROW_H)));
+    const spread = Math.max(minSpread, rows > 0 ? Math.min(MAX_ROW_SPREAD, Math.max(1, h / (k * rows * ROW_H))) : 1);
     placeRows(view, Math.round(ROW_H * spread * 2) / 2);
     applyTransform(view, d3.zoomIdentity.translate(tx, focusTy(view, k, tx, box)).scale(k), true);
 }

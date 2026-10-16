@@ -27,7 +27,7 @@
 .btn-link:hover { text-decoration: underline; }
 
 /* ---------- toolbar ---------- */
-.program__toolbar { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-sm); }
+.program__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-sm); }
 .program__check { display: inline-flex; align-items: center; gap: var(--sp-1); color: var(--fg-muted); cursor: pointer; user-select: none; }
 .program__check input { margin: 0; }
 .segmented { display: inline-flex; }

@@ -244,7 +244,8 @@ kbd {
 .task-header__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .task-header__count { margin-left: var(--sp-2); }
 
-@media (max-width: 720px) {
+/* Below about 960 px the full table no longer fits its card. */
+@media (max-width: 960px) {
     .container { padding: var(--sp-3); }
     .search__hint, .header__text p { display: none; }
     .search input { width: 120px; }
@@ -264,4 +265,9 @@ kbd {
     .runs th { font-size: 10px; }
     .run-row__name { min-width: 0; }
     .runs td[data-stat="best_score"] .muted { display: none; }
+}
+
+/* The narrowest phones drop Status too (the run page shows it); the name needs the room. */
+@media (max-width: 420px) {
+    .runs th:nth-child(2), .runs td:nth-child(2):not([colspan]) { display: none; }
 }

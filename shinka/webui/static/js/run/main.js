@@ -4,19 +4,21 @@
 // expanded, and whether the right pane shows a program or the run overview.
 // The URL mirrors the state (db_path, program) so links can be shared.
 //
-// On phones (PHONE_QUERY) only one pane shows at a time: the tree fills the
-// screen, and a program or the overview opens over it with a back bar. Each
-// opening pushes a history entry, so the browser's back button closes it.
+// On phones, touch tablets, and narrow windows (SINGLE_PANE_QUERY, kept in step
+// with run.css) only one pane shows at a time: the tree fills the screen, and a
+// program or the overview opens over it with a back bar. History entries carry
+// how many panel views are stacked above the tree, so the back bar returns to
+// the tree in one step and the browser's back button walks back through them.
 import { api } from "./api.js";
 import {
-    allExpanded, buildRunModel, collapseSubtree, defaultExpanded, displayName, escapeHtml, expandSubtree,
+    allExpanded, buildRunModel, collapseSubtree, defaultExpanded, escapeHtml, expandSubtree,
     expandTo, lineageOf, runStatus, visibleIds, visibleProgramCount,
 } from "./model.js";
 import { renderStatus, runLabel } from "./status.js";
 import { createTree } from "./tree.js";
 import { renderProgram } from "./program.js";
 import { renderOverview } from "./overview.js";
-import { initTheme, toggleTheme, onThemeChange } from "./theme.js";
+import { initTheme, toggleTheme, onThemeChange, SINGLE_PANE_MEDIA } from "./theme.js";
 
 const POLL_MS = 3000;
 const TOAST_MS = 2500;
@@ -24,7 +26,10 @@ const POLL_FAILURES_BEFORE_ERROR = 3;
 const DIVIDER_MIN_PX = 420;
 const PANEL_MIN_PX = 420;
 const TREE_WIDTH_KEY = "shinkaTreeWidth";
-const PHONE_QUERY = window.matchMedia("(max-width: 760px)");
+const SINGLE_PANE_QUERY = window.matchMedia(SINGLE_PANE_MEDIA);
+const TOUCH_QUERY = window.matchMedia("(hover: none)");
+const NARROW_QUERY = window.matchMedia("(max-width: 420px)");
+const TAP_GUARD_MS = 400; // the second tap of a double tap must not press what just appeared under it
 
 const state = {
     dbPath: null,
@@ -72,19 +77,26 @@ function readUrl() {
     state.overviewOpen = !state.selectedId && params.get("view") === "run";
 }
 
-/** opensPanel marks the entry so the phone back bar can return with history.back(). */
-function writeUrl(replace = false, { opensPanel = false } = {}) {
+/**
+ * history.state.panelDepth counts the panel views stacked above the tree entry
+ * (1 for the first program or overview opened, 2 after the next, ...).
+ */
+function writeUrl(replace = false, { panelDepth = 0 } = {}) {
     const url = new URL(window.location.href);
     url.search = "";
     if (state.dbPath) url.searchParams.set("db_path", state.dbPath);
     if (state.view === "program" && state.selectedId) url.searchParams.set("program", state.selectedId);
     else if (state.overviewOpen) url.searchParams.set("view", "run");
     const method = replace ? "replaceState" : "pushState";
-    if (url.href !== window.location.href) history[method]({ shinkaPanel: opensPanel }, "", url);
+    if (url.href !== window.location.href) history[method]({ panelDepth }, "", url);
+}
+
+function currentPanelDepth() {
+    return (history.state && history.state.panelDepth) || 0;
 }
 
 function isPhone() {
-    return PHONE_QUERY.matches;
+    return SINGLE_PANE_QUERY.matches;
 }
 
 /** On phones the panel shows only for a selected program or an explicitly opened overview. */
@@ -116,21 +128,48 @@ function renderAll() {
     document.title = state.dbPath ? `${runLabel(state.dbPath)} · ShinkaEvolve` : "ShinkaEvolve run";
     el.linkAdvanced.href = state.dbPath ? `/viz_tree.html?db_path=${encodeURIComponent(state.dbPath)}` : "/viz_tree.html";
     if (!state.model) return;
-    const visible = visibleIds(state.model, state.expanded);
-    const failed = state.model.totals.failedProposalCount;
-    el.treeSummary.textContent = `${visibleProgramCount(state.model, visible)} of ${state.model.totals.programCount} programs shown`
-        + (failed ? ` · ${failed} failed proposal${failed === 1 ? "" : "s"}` : "");
+    el.treeSummary.textContent = treeSummary(state.model, visibleIds(state.model, state.expanded));
     const selectedId = state.view === "program" ? state.selectedId : null;
     tree.render(state.model, { selectedId, expanded: state.expanded });
-    document.body.classList.toggle("is-panel-open", panelOpen());
+    setPanelOpen(panelOpen());
+    el.btnRun.classList.toggle("is-active", state.view === "overview" && (!isPhone() || state.overviewOpen));
     // A hidden panel is not rendered; opening it re-renders through renderAll().
     if (!isPhone() || panelOpen()) renderPanel();
 }
 
+function setPanelOpen(open) {
+    const wasOpen = document.body.classList.contains("is-panel-open");
+    document.body.classList.toggle("is-panel-open", open);
+    if (open !== wasOpen) guardTaps();
+}
+
+/**
+ * On single-pane screens the panel (or the tree, with "← Runs" where "← Tree" was)
+ * appears under the finger. For a moment after it does, clicks are swallowed so the
+ * second tap of a double tap cannot press a control the user never saw.
+ */
+let tapGuardUntil = 0;
+function guardTaps() {
+    if (isPhone()) tapGuardUntil = performance.now() + TAP_GUARD_MS;
+}
+function swallowGuardedClick(event) {
+    if (performance.now() < tapGuardUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+}
+
+function treeSummary(model, visible) {
+    const shown = visibleProgramCount(model, visible), total = model.totals.programCount, failed = model.totals.failedProposalCount;
+    if (NARROW_QUERY.matches) return `${shown}/${total}`;
+    if (isPhone()) return `${shown}/${total} shown`;
+    return `${shown} of ${total} programs shown` + (failed ? ` · ${failed} failed proposal${failed === 1 ? "" : "s"}` : "");
+}
+
 function renderPanel() {
-    el.btnRun.classList.toggle("is-active", state.view === "overview" && (!isPhone() || state.overviewOpen));
     const program = state.selectedId ? state.model.programs.get(state.selectedId) : null;
-    el.backTitle.textContent = state.view === "program" && program ? displayName(program) : "Run overview";
+    // The panel heading already names the program; the bar names the run, since the panel covers the status strip.
+    el.backTitle.textContent = runLabel(state.dbPath);
     const context = { model: state.model, dbPath: state.dbPath, api, onSelect: selectProgram };
     if (state.view === "program" && program) renderProgram(el.panel, { ...context, program });
     else renderOverview(el.panel, context);
@@ -147,7 +186,8 @@ function toast(message, ms = TOAST_MS) {
 
 function selectProgram(id, { reveal = true } = {}) {
     if (!state.model || !state.model.programs.has(id)) return;
-    const opensPanel = !panelOpen();
+    const panelDepth = panelOpen() ? currentPanelDepth() + 1 : 1;
+    if (panelOpen()) guardTaps();
     state.selectedId = id;
     state.view = "program";
     state.overviewOpen = false;
@@ -155,29 +195,37 @@ function selectProgram(id, { reveal = true } = {}) {
         state.expanded = expandTo(state.model, state.expanded, id);
         tree.focus(id);
     }
-    writeUrl(false, { opensPanel });
+    writeUrl(false, { panelDepth });
     renderAll();
 }
 
 function showOverview() {
-    const opensPanel = !panelOpen();
+    // Already showing: pushing another identical history entry would only make Back do nothing.
+    if (state.view === "overview" && (state.overviewOpen || !isPhone())) return;
+    const panelDepth = panelOpen() ? currentPanelDepth() + 1 : 1;
+    if (panelOpen()) guardTaps();
     state.view = "overview";
     state.selectedId = null;
     state.overviewOpen = true;
-    writeUrl(false, { opensPanel });
+    writeUrl(false, { panelDepth });
     renderAll();
 }
 
-/** Phone back bar: return to the tree, through history when this page opened the panel. */
+/**
+ * Back bar: return to the tree. When this page stacked the panel views, unwind
+ * them all; after a deep link there is no tree entry below, so replace this one.
+ */
 function closePanel() {
-    if (history.state && history.state.shinkaPanel) {
-        history.back();
+    guardTaps();
+    const depth = currentPanelDepth();
+    if (depth > 0) {
+        history.go(-depth);
         return;
     }
     state.view = "overview";
     state.selectedId = null;
     state.overviewOpen = false;
-    writeUrl();
+    writeUrl(true);
     renderAll();
 }
 
@@ -262,7 +310,8 @@ async function loadRun({ initial = false } = {}) {
         renderAll();
         if (initial || (grew && tree.isUntouched())) tree.fit();
         else if (previousMax !== null && state.model.maxGeneration > previousMax) {
-            toast(`Generation ${state.model.maxGeneration} arrived. Press F to follow the newest programs.`, 4000);
+            const how = TOUCH_QUERY.matches ? "Tap Fit" : "Press F";
+            toast(`Generation ${state.model.maxGeneration} arrived. ${how} to follow the newest programs.`, 4000);
         }
     } catch (error) {
         state.error = error.message || String(error);
@@ -310,50 +359,69 @@ function onKeyDown(event) {
 // ---------- divider ----------
 
 function clampTreeWidth(width) {
-    return Math.min(Math.max(width, DIVIDER_MIN_PX), window.innerWidth - PANEL_MIN_PX);
+    const max = Math.max(DIVIDER_MIN_PX, window.innerWidth - PANEL_MIN_PX);
+    return Math.min(Math.max(width, DIVIDER_MIN_PX), max);
 }
 
 function initDivider() {
-    let dragging = false;
-    const stored = Number(localStorage.getItem(TREE_WIDTH_KEY));
-    if (stored > 0) el.treePane.style.flexBasis = `${clampTreeWidth(stored)}px`;
-    el.divider.addEventListener("mousedown", (event) => {
-        dragging = true;
+    const stored = () => Number(localStorage.getItem(TREE_WIDTH_KEY)) || 0;
+    const apply = (width) => { el.treePane.style.flexBasis = `${clampTreeWidth(width)}px`; };
+    if (stored() > 0) apply(stored());
+    // A narrower window must not squeeze the panel to nothing; without a chosen width the CSS default applies.
+    window.addEventListener("resize", () => { if (stored() > 0 && !isPhone()) apply(stored()); });
+    el.divider.addEventListener("pointerdown", (event) => {
+        el.divider.setPointerCapture(event.pointerId);
         el.divider.classList.add("is-dragging");
         document.body.style.userSelect = "none";
         event.preventDefault();
     });
-    window.addEventListener("mousemove", (event) => {
-        if (dragging) el.treePane.style.flexBasis = `${clampTreeWidth(event.clientX)}px`;
+    el.divider.addEventListener("pointermove", (event) => {
+        if (el.divider.hasPointerCapture(event.pointerId)) apply(event.clientX);
     });
-    window.addEventListener("mouseup", () => {
-        if (!dragging) return;
-        dragging = false;
+    const finish = (event) => {
+        if (!el.divider.classList.contains("is-dragging")) return;
+        el.divider.releasePointerCapture(event.pointerId);
         el.divider.classList.remove("is-dragging");
         document.body.style.userSelect = "";
         localStorage.setItem(TREE_WIDTH_KEY, String(el.treePane.getBoundingClientRect().width));
         tree.fit();
-    });
+    };
+    el.divider.addEventListener("pointerup", finish);
+    el.divider.addEventListener("pointercancel", finish);
 }
 
 // ---------- boot ----------
 
+/** A link that opens straight into a program or the overview gets the tree as the entry before it. */
+function stackDeepLink() {
+    if (!isPhone() || !panelOpen() || currentPanelDepth() > 0) return;
+    const panelUrl = window.location.href;
+    const treeUrl = new URL(panelUrl);
+    treeUrl.search = "";
+    if (state.dbPath) treeUrl.searchParams.set("db_path", state.dbPath);
+    history.replaceState({ panelDepth: 0 }, "", treeUrl);
+    history.pushState({ panelDepth: 1 }, "", panelUrl);
+}
+
 function init() {
     initTheme();
     readUrl();
+    stackDeepLink();
     tree = createTree(el.tree, { onSelect: (id) => selectProgram(id, { reveal: false }), onToggle: toggleNode });
 
     el.btnRun.addEventListener("click", showOverview);
     el.btnBack.addEventListener("click", closePanel);
-    PHONE_QUERY.addEventListener("change", () => { if (state.model) { renderAll(); tree.fit(); } });
+    SINGLE_PANE_QUERY.addEventListener("change", () => { if (state.model) { renderAll(); tree.fit(); } });
     el.btnTheme.addEventListener("click", toggleTheme);
     el.btnBest.addEventListener("click", selectBest);
     el.btnExpand.addEventListener("click", expandAll);
     el.btnCollapse.addEventListener("click", collapseToDefault);
     el.btnFit.addEventListener("click", () => tree.fit());
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("click", swallowGuardedClick, true);
     onThemeChange(() => renderAll());
     window.addEventListener("popstate", () => {
+        guardTaps();
         readUrl();
         if (!state.model) return;
         dropUnknownSelection();

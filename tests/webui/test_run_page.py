@@ -320,3 +320,156 @@ def test_phone_run_list_fits(phone):
     assert phone.evaluate("document.documentElement.scrollWidth") <= 390
     assert phone.locator("th", has_text="Cost").first.is_hidden()
     assert phone.errors == []
+
+
+def tap_centre(page, locator):
+    box = locator.bounding_box()
+    page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+
+def test_phone_tap_on_node_with_pill_opens_that_node(phone):
+    for index in range(4):
+        open_run(phone)
+        ids = phone.evaluate(
+            "[...document.querySelectorAll('#tree g.tree-node')].filter(g => g.querySelector('.tree-pill--more')).map(g => g.__data__.id)"
+        )
+        assert ids, "fixture has nodes with +N pills"
+        if index >= len(ids):
+            break
+        target = ids[index]
+        dot = (
+            phone.locator("#tree g.tree-node")
+            .filter(has=phone.locator(".tree-pill--more"))
+            .nth(index)
+            .locator(".tree-dot")
+        )
+        tap_centre(phone, dot)
+        phone.wait_for_timeout(500)
+        assert phone.evaluate("window.shinkaRun.state.selectedId") == target
+        assert panel_open(phone)
+    assert phone.errors == []
+
+
+def dot_centre(page, program_id):
+    return page.evaluate(
+        """id => {
+            const g = [...document.querySelectorAll('#tree g.tree-node')].find(n => n.__data__.id === id);
+            const r = g.querySelector('.tree-dot').getBoundingClientRect();
+            return [r.x + r.width / 2, r.y + r.height / 2];
+        }""",
+        program_id,
+    )
+
+
+def test_phone_pill_tap_leaves_children_tappable(phone):
+    open_run(phone)
+    parent = phone.evaluate(
+        "document.querySelector('#tree .tree-pill--more').closest('g.tree-node').__data__.id"
+    )
+    tap_centre(phone, phone.locator("#tree .tree-pill--more .tree-pill__box").first)
+    phone.wait_for_timeout(500)
+    assert phone.locator("#tree .tree-pill--less").count() == 0
+    child = phone.evaluate(
+        "id => window.shinkaRun.state.model.programs.get(id).children[0]", parent
+    )
+    x, y = dot_centre(phone, child)
+    phone.touchscreen.tap(x, y)
+    phone.wait_for_timeout(500)
+    assert phone.evaluate("window.shinkaRun.state.selectedId") == child
+    assert phone.errors == []
+
+
+def test_phone_back_bar_unwinds_stacked_panels(phone):
+    open_run(phone)
+    start_length = phone.evaluate("history.length")
+    phone.locator("#btn-best").tap()
+    phone.wait_for_timeout(500)
+    parent = phone.evaluate("window.shinkaRun.state.model.best.parent_id")
+    phone.evaluate(f"window.shinkaRun.selectProgram('{parent}')")
+    phone.wait_for_timeout(500)
+    phone.locator("#btn-back").tap()
+    phone.wait_for_timeout(600)
+    assert not panel_open(phone) and "program=" not in phone.url
+    # The back bar went back through history instead of adding an entry.
+    phone.go_forward()
+    phone.wait_for_timeout(500)
+    assert panel_open(phone)
+    assert phone.evaluate("history.length") == start_length + 2
+    assert phone.errors == []
+
+
+def test_desktop_overview_button_does_not_stack_history(page):
+    open_run(page)
+    length = page.evaluate("history.length")
+    page.click("#btn-run")
+    page.click("#btn-run")
+    page.wait_for_timeout(300)
+    assert page.evaluate("history.length") == length
+    assert page.errors == []
+
+
+def test_tablet_is_single_pane(browser, server):
+    context = browser.new_context(
+        viewport={"width": 768, "height": 1024}, is_mobile=True, has_touch=True
+    )
+    page = context.new_page()
+    page.goto(
+        f"http://127.0.0.1:{server.server_port}/run.html?db_path={DB_PATH}",
+        wait_until="networkidle",
+    )
+    page.wait_for_function("window.shinkaRun && window.shinkaRun.state.model !== null")
+    assert not page.locator("#panel").is_visible()
+    assert not page.locator("#divider").is_visible()
+    context.close()
+
+
+def test_expanded_fit_keeps_numbers_readable(page):
+    open_run(page)
+    page.click("#btn-expand")
+    page.wait_for_timeout(800)
+    assert (
+        page.evaluate(
+            "document.querySelector('#tree .tree-nodes').classList.contains('tree-nodes--no-labels')"
+        )
+        is False
+    )
+    assert page.errors == []
+
+
+def test_phone_deep_link_then_navigate_back_bar_reaches_tree(phone):
+    open_run(phone)
+    best = phone.evaluate("window.shinkaRun.state.model.best.id")
+    parent = phone.evaluate("window.shinkaRun.state.model.best.parent_id")
+    open_run(phone, f"&program={best}")
+    phone.wait_for_timeout(500)
+    phone.evaluate(f"window.shinkaRun.selectProgram('{parent}')")
+    phone.wait_for_timeout(600)
+    phone.locator("#btn-back").tap()
+    phone.wait_for_timeout(600)
+    assert not panel_open(phone) and "program=" not in phone.url
+    assert phone.errors == []
+
+
+def test_window_resize_does_not_pin_split(page):
+    open_run(page)
+    page.evaluate("localStorage.removeItem('shinkaTreeWidth')")
+    open_run(page)
+    page.set_viewport_size({"width": 1000, "height": 900})
+    page.wait_for_timeout(200)
+    page.set_viewport_size({"width": 1600, "height": 900})
+    page.wait_for_timeout(200)
+    assert page.evaluate("document.getElementById('tree-pane').style.flexBasis") == ""
+    assert page.errors == []
+
+
+def test_run_list_fits_between_breakpoints(browser, server):
+    context = browser.new_context(viewport={"width": 920, "height": 900})
+    page = context.new_page()
+    page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+    page.locator(".run-row__name").first.wait_for(timeout=10_000)
+    page.wait_for_timeout(800)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 920
+    assert page.evaluate(
+        "(() => { const t = document.querySelector('.runs'); return t.scrollWidth <= t.parentElement.clientWidth; })()"
+    )
+    context.close()

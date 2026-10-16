@@ -89,7 +89,8 @@ One page per run, split into three parts:
   generation that found it, cost, runtime, and how long ago the last program
   arrived. The page polls every three seconds and reloads itself when a
   program is added.
-- **Tree** on the left: one column per generation, the best lineage in orange,
+- **Tree** on the left: one column per generation, with each node's generation
+  number inside its dot (the numbers hide when zoomed out too far to read). The best lineage is orange,
   the best program ringed in gold, incorrect programs red, proposals that never
   reached evaluation as hollow dashed circles, and programs without a score in
   grey. At first only the best lineage, the newest lineage, and their siblings
@@ -109,6 +110,13 @@ One page per run, split into three parts:
   - *Run overview*: stat cards, score by generation (best so far plus every
     correct program), cost per generation with the cumulative total, and the
     summarizer's scratchpad when the run wrote one.
+
+**Phones and tablets.** Below 900 px wide, and on touch screens below 1200 px,
+the page shows one pane at a time. The tree fills the screen; tapping a node,
+**Best**, or **Overview** opens the summary over it with a "← Tree" bar, and the
+browser's back button closes it as well. Charts do not zoom on swipe, so a swipe
+scrolls the page. The run list keeps the run name, status, best score, and last
+update.
 
 Keys: arrows move between parent, child, and siblings; `B` selects the best
 program; `F` fits; `W` shows the whole run; `Esc` returns to the overview.

@@ -64,3 +64,17 @@ export function plotlyLayout(overrides = {}) {
 }
 
 export const PLOTLY_CONFIG = { displayModeBar: false, responsive: true };
+
+/** Phones, touch tablets, and narrow windows show one pane at a time. Mirrored in run.css. */
+export const SINGLE_PANE_MEDIA = "(max-width: 900px), (pointer: coarse) and (max-width: 1199px)";
+
+/**
+ * Layout keys that stop a chart from zooming or panning on touch screens, where a
+ * swipe over a chart should scroll the page. Tapping still shows the hover label.
+ */
+export function touchSafeAxes(layout) {
+    if (!window.matchMedia("(pointer: coarse)").matches) return layout;
+    const fixed = {};
+    for (const key of Object.keys(layout)) if (/^[xy]axis\d*$/.test(key)) fixed[key] = { ...layout[key], fixedrange: true };
+    return { ...layout, ...fixed, dragmode: false };
+}

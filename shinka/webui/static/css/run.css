@@ -125,7 +125,9 @@ a:hover { text-decoration: underline; }
 .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .pane--tree { flex: 0 0 var(--tree-width, 46%); background: var(--bg); }
 .pane--panel { flex: 1; background: var(--bg-elev); overflow: auto; border-left: 1px solid var(--border); }
-.divider { width: 6px; cursor: col-resize; background: transparent; margin-left: -3px; margin-right: -3px; z-index: 2; }
+.divider { width: 6px; cursor: col-resize; background: transparent; margin-left: -3px; margin-right: -3px; z-index: 2; touch-action: none; position: relative; }
+/* A wider grip for fingers, without changing the visible line. */
+@media (pointer: coarse) { .divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -9px; right: -9px; } }
 .divider:hover, .divider.is-dragging { background: var(--accent); opacity: 0.4; }
 
 .pane__toolbar {
@@ -171,6 +173,10 @@ a:hover { text-decoration: underline; }
 .swatch--incorrect { background: var(--bad-bg); border: 1.5px solid var(--bad); }
 .swatch--proposal { background: transparent; border: 1.5px dashed var(--bad); }
 .swatch--unscored { background: var(--fg-faint); }
+.swatch--gen {
+    width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+    font: 700 9px var(--font); background: var(--bg-sunken); color: var(--fg); border-color: var(--border-strong);
+}
 .swatch--lineage { background: var(--lineage); border-radius: 2px; height: 3px; width: 18px; border: 0; }
 
 /* ---------- components ---------- */
@@ -268,6 +274,7 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
 
 .toast {
     position: fixed;
+    z-index: 30; /* above the panel and back bar on phones */
     bottom: var(--sp-4);
     left: 50%;
     transform: translateX(-50%);
@@ -277,7 +284,6 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
     border-radius: var(--radius);
     font-size: var(--fs-sm);
     box-shadow: var(--shadow);
-    z-index: 10;
 }
 
 .tooltip {
@@ -295,11 +301,12 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
 }
 
 
-/* ---------- phones: one pane at a time ----------
-   The tree fills the screen. Opening a program or the overview slides the panel
-   over the tree with a back bar; the browser's back button closes it too. */
-@media (max-width: 760px) {
-    :root { --status-h: 92px; }
+/* ---------- phones, touch tablets, narrow windows: one pane at a time ----------
+   Keep this query in step with SINGLE_PANE_QUERY in main.js. The tree fills the
+   screen. Opening a program or the overview covers it, and the status strip,
+   with the panel and a back bar; the browser's back button closes it too. */
+@media (max-width: 900px), (pointer: coarse) and (max-width: 1199px) {
+    :root { --status-h: 92px; --back-h: 44px; }
     .status {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr) auto;
@@ -324,20 +331,20 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
     .pane--panel {
         display: none;
         position: fixed;
-        top: calc(var(--status-h) + 44px);
+        top: var(--back-h);
         left: 0;
         right: 0;
         bottom: 0;
         z-index: 20;
         border-left: 0;
-        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
     }
     .panel-back {
         position: fixed;
-        top: var(--status-h);
+        top: 0;
         left: 0;
         right: 0;
-        height: 44px;
+        height: var(--back-h);
         z-index: 21;
         align-items: center;
         gap: var(--sp-3);
@@ -345,9 +352,12 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
         background: var(--bg-elev);
         border-bottom: 1px solid var(--border);
     }
-    .panel-back__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .panel-back__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); }
     body.is-panel-open .pane--panel { display: block; }
     body.is-panel-open .panel-back { display: flex; }
+    /* No scroll boxes inside the panel: a swipe anywhere scrolls the panel itself.
+       program.js renders shorter logs on these screens. */
+    pre.log, pre.code, .diff { max-height: none; }
 
     .pane__toolbar { padding: 0 var(--sp-2); gap: var(--sp-1); }
     .legend { font-size: 10px; column-gap: var(--sp-3); padding: 2px var(--sp-2); left: var(--sp-2); bottom: var(--sp-2); }
@@ -355,7 +365,23 @@ pre.log { white-space: pre-wrap; word-break: break-word; }
     .btn { padding: 6px 10px; }
 }
 
-/* Touch screens: no hover, so no tooltip; nodes get a larger invisible tap target (see tree.css). */
+/* Phones turned sideways: one row of status, so the tree keeps most of the height. */
+@media (max-width: 900px) and (max-height: 500px), (pointer: coarse) and (max-width: 1199px) and (max-height: 500px) {
+    :root { --status-h: 44px; }
+    .status { grid-template-columns: auto minmax(0, 12ch) minmax(0, 1fr) auto; grid-template-rows: 44px; }
+    .status__items { grid-row: 1; grid-column: 3; height: 34px; }
+    .status__actions { grid-column: 4; }
+}
+
+/* Very narrow phones: the back link becomes an arrow so the run name keeps its room. */
+@media (max-width: 420px) {
+    .status__back { font-size: 0; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: -12px; }
+    .status__back::before { content: "\2190"; font-size: var(--fs-lg); }
+    #tree-summary { flex-shrink: 0; }
+}
+
+/* Touch screens: no hover, so no tooltip and no mouse or key hints. */
 @media (hover: none) {
     .tree-tooltip { display: none !important; }
+    .legend__hint { display: none; }
 }
