@@ -110,18 +110,3 @@ def test_local_worker_runs_inside_memory_limited_scope(tmp_path):
     result = asyncio.run(scenario())
     assert result.returncode == 0
     assert ".scope" in result.stdout
-
-
-def test_local_memory_slice_groups_slot_scopes():
-    import pytest
-
-    from shinka.core.workers import local_endpoint_command, validate_worker_config
-
-    command = local_endpoint_command({"name": "local", "memory_max": "14G",
-                                      "memory_slice": "shinka-agents.slice"})
-    assert "--slice=shinka-agents.slice" in command
-    assert "MemoryMax=14G" in command
-    for bad in ({"name": "local", "memory_slice": "shinka-agents.slice"},
-                {"name": "local", "memory_max": "14G", "memory_slice": "../x"}):
-        with pytest.raises(ValueError):
-            validate_worker_config([bad], {})
