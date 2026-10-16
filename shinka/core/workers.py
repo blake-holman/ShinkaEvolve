@@ -39,7 +39,7 @@ def validate_worker_config(workers, workspace):
     names = set()
     for worker in workers:
         if not isinstance(worker, dict) or set(worker) - {"name", "capacity", "launch_command",
-                                                          "agents", "memory_max"}:
+                                                          "agents", "memory_max", "memory_slice"}:
             raise ValueError("Invalid proposal worker configuration")
         agents = worker.get("agents")
         if agents is not None and (not isinstance(agents, list) or not agents
@@ -51,6 +51,10 @@ def validate_worker_config(workers, workspace):
                 raise ValueError("memory_max applies only to local workers without a launch_command")
             if not isinstance(memory_max, str) or not re.fullmatch(r"[0-9]+[KMGT]?", memory_max):
                 raise ValueError("Worker memory_max must be a systemd size such as 14G")
+        memory_slice = worker.get("memory_slice")
+        if memory_slice is not None and (not memory_max or not isinstance(memory_slice, str)
+                                         or not re.fullmatch(r"[A-Za-z0-9_-]+\.slice", memory_slice)):
+            raise ValueError("Worker memory_slice needs memory_max and a name such as shinka-agents.slice")
         name = worker.get("name")
         if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name in names:
             raise ValueError("Worker names must be unique simple names")
@@ -95,7 +99,10 @@ def local_endpoint_command(worker):
     limit = worker.get("memory_max")
     if not limit:
         return endpoint
-    return ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+    # memory_slice (optional) groups every slot's scope under one systemd slice,
+    # whose own MemoryMax caps all local agents together.
+    slice_args = [f"--slice={worker['memory_slice']}"] if worker.get("memory_slice") else []
+    return ["systemd-run", "--user", "--scope", "--quiet", "--collect", *slice_args,
             "-p", f"MemoryMax={limit}", "-p", "MemorySwapMax=0",
             *endpoint]
 
