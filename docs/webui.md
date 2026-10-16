@@ -89,8 +89,10 @@ One page per run, split into three parts:
   generation that found it, cost, runtime, and how long ago the last program
   arrived. The page polls every three seconds and reloads itself when a
   program is added.
-- **Tree** on the left: one column per generation, with each node's generation
-  number inside its dot (the numbers hide when zoomed out too far to read). The best lineage is orange,
+- **Tree** on the left: one column per level, so each child sits one column to
+  the right of its parent and the tree stays compact even when a child arrives
+  many generations later. Each node's generation number is inside its dot (the
+  numbers hide when zoomed out too far to read). The best lineage is orange,
   the best program ringed in gold, incorrect programs red, proposals that never
   reached evaluation as hollow dashed circles, and programs without a score in
   grey. At first only the best lineage, the newest lineage, and their siblings

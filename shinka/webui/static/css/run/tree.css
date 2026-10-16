@@ -5,7 +5,6 @@
 .tree-svg { cursor: grab; user-select: none; }
 .tree-svg:active { cursor: grabbing; }
 
-.tree-grid line { stroke: var(--border); stroke-opacity: 0.6; vector-effect: non-scaling-stroke; }
 
 .tree-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .tree-edge.is-lineage { stroke: var(--lineage); stroke-width: 2.5; }

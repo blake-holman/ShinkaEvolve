@@ -13,10 +13,12 @@
 //   tree.destroy()
 //
 // Layout rules:
-//   - x position = generation (uniform spacing, generation 0 at the left);
-//     y positions come from a tree layout so children sit near their parent.
-//     Each node shows its generation number inside the dot; the numbers hide
-//     when the zoom makes the dots too small to read them.
+//   - x position = depth in the tree (roots at the left, each child one column
+//     right of its parent), so levels line up and the tree stays compact even
+//     when a child arrives many generations after its parent. y positions come
+//     from a tree layout so children sit near their parent. Each node shows its
+//     generation number inside the dot; the numbers hide when the zoom makes the
+//     dots too small to read them.
 //   - Only ids in visibleIds(model, expanded) are drawn. A node with hidden
 //     descendants shows a "+N" pill counting all of them; its title names the
 //     programs and the failed proposals separately. An expanded node off
@@ -42,7 +44,7 @@ import {
     failureText, scoreOf, scoreDelta, deltaClass, formatScore, formatDelta, escapeHtml,
 } from "./model.js";
 
-const COL_W = 64;            // horizontal distance between generations
+const COL_W = 64;            // horizontal distance between tree levels
 const ROW_H = 28;            // vertical distance between neighbouring rows before fit() spreads them
 const MAX_ROW_SPREAD = 2;    // fit() spreads the rows of a short tree up to this multiple of ROW_H
 const MAX_ROW_SPREAD_FOR_DOTS = 2.5; // and spaces rows up to this multiple so dots stay full size
@@ -52,11 +54,11 @@ const LONG_LABEL_MIN_R = 9.5; // three- and four-digit numbers (smaller font) ne
 const MIN_DOT_R = 1.5;       // smallest dot radius on screen, for whole-tree views
 const NODE_GAP_PX = 1;       // dots in neighbouring rows keep at least twice this apart on screen
 const EDGE_PAD = R + 8;      // screen space kept around the outermost node centres
-const GRID_MIN_PX = 6;       // hide the generation grid when its lines would be closer than this
 const FIT_PAD = 24;
 const LEGEND_H = 30;         // legend overlap used when the legend cannot be measured
 const MAX_FIT_SCALE = 1.5;
-const MIN_FIT_SCALE = 0.4;   // fit() never goes below this (generations 25.6 px apart)
+const MIN_FIT_SCALE = 0.4;   // fit() never goes below this (levels 25.6 px apart)
+const FOCUS_AT = 0.66;       // a fit too wide for the pane puts the focus program this far across
 const DARK_TEXT = "#1f2328";  // generation number on light fills
 const LIGHT_TEXT = "#ffffff"; // and on dark fills
 const MIN_SCALE = 0.005;     // the wheel can still zoom out to a whole long run
@@ -81,7 +83,7 @@ const LINK = d3.linkHorizontal().x((d) => d.x).y((d) => d.y);
 
 const MARKUP = `
 <svg class="tree-svg" role="img" aria-label="Program tree">
-    <g class="tree-canvas"><g class="tree-grid"></g><g class="tree-edges"></g><g class="tree-nodes"></g></g>
+    <g class="tree-canvas"><g class="tree-edges"></g><g class="tree-nodes"></g></g>
 </svg>
 <div class="tree-empty empty" hidden></div>
 <div class="tooltip tree-tooltip" hidden></div>`;
@@ -96,12 +98,11 @@ export function createTree(container, { onSelect = () => {}, onToggle = () => {}
         tooltip: container.querySelector(".tree-tooltip"),
         empty: container.querySelector(".tree-empty"),
         model: null, selectedId: null, expanded: new Set(),
-        nodes: new Map(), bounds: null, gens: [], hoveredId: null, pendingFocus: null,
-        width: rect.width, height: rect.height, gridHidden: false,
+        nodes: new Map(), bounds: null, hoveredId: null, pendingFocus: null,
+        width: rect.width, height: rect.height,
         touched: false, gestureStart: null, rowH: ROW_H, glyph: null, bridgeX: -(PILL_OFFSET - R) - 1,
     };
     view.canvas = view.svg.select(".tree-canvas");
-    view.grid = view.canvas.select(".tree-grid");
     view.nodeLayer = view.canvas.select(".tree-nodes");
     view.lessPill = d3.create("svg:g").attr("class", "tree-pill tree-pill--less").call(buildPill, view);
     view.zoom = d3.zoom().scaleExtent([MIN_SCALE, MAX_SCALE])
@@ -133,7 +134,6 @@ export function createTree(container, { onSelect = () => {}, onToggle = () => {}
 
 function onZoom(view, event) {
     const t = event.transform;
-    updateGrid(view, t.k);
     updateGlyphs(view, t.k);
     view.canvas.attr("transform", t);
     // Programmatic moves (fit, focus) have no sourceEvent; only the user's own pan or zoom counts.
@@ -157,44 +157,36 @@ function render(view, model, state) {
     drawEdges(view.canvas.select(".tree-edges"), edges, model.bestLineage, animate);
     drawNodes(view, nodes, scoreColour(model), animate);
     view.bounds = bounds(nodes, view.rowH);
-    view.gens = nodes.length ? d3.range(d3.min(nodes, (n) => n.gen), d3.max(nodes, (n) => n.gen) + 1) : [];
-    drawGrid(view);
     view.empty.hidden = nodes.length > 0;
     view.empty.textContent = model.programs.size ? "Nothing to show" : "No programs in this run yet";
     if (view.pendingFocus !== null) revealNode(view, view.pendingFocus);
 }
 
 /**
- * Lay out the visible subset. Depth in the hierarchy is made equal to the
- * generation by inserting invisible spacer nodes along edges that skip
- * generations, so d3.tree keeps nodes of one generation from overlapping.
- * Spacers to the right of a "+N" pill keep its row free of other nodes.
+ * Lay out the visible subset by depth: roots in the first column, each child
+ * one column to the right of its parent. Invisible spacers to the right of a
+ * "+N" pill keep its row free of other nodes.
  */
 function layout(model, expanded, rowH) {
     const root = { children: [] };
     const nodes = [];
-    const stack = model.roots.slice().reverse().map((id) => [root, -1, id]);
+    const stack = model.roots.slice().reverse().map((id) => [root, id]);
     while (stack.length) {
-        const [parentHolder, parentGen, id] = stack.pop();
+        const [parent, id] = stack.pop();
         const program = model.programs.get(id);
         if (!program) continue;
         const node = { id, program, gen: Number(program.generation) || 0, children: [], pill: pillFor(model, program, expanded) };
         nodes.push(node);
-        let holder = parentHolder;
-        for (let g = parentGen + 1; g < node.gen; g++) {
-            const spacer = { children: [] };
-            holder.children.push(spacer);
-            holder = spacer;
-        }
-        holder.children.push(node);
-        if (expanded.has(id)) for (let i = program.children.length - 1; i >= 0; i--) stack.push([node, node.gen, program.children[i]]);
+        parent.children.push(node);
+        if (expanded.has(id)) for (let i = program.children.length - 1; i >= 0; i--) stack.push([node, program.children[i]]);
         else if (node.pill) reservePillRow(node);
     }
     const hierarchy = d3.hierarchy(root);
     d3.tree().nodeSize([1, COL_W]).separation(() => 1)(hierarchy);
     for (const h of hierarchy.descendants()) {
         if (h.data.id === undefined) continue;
-        h.data.x = h.data.gen * COL_W;
+        // depth 0 is the invisible root that holds the real roots.
+        h.data.x = (h.depth - 1) * COL_W;
         h.data.row = h.x;
         h.data.y = h.x * rowH;
     }
@@ -381,13 +373,6 @@ function bounds(nodes, rowH) {
     return b;
 }
 
-function drawGrid(view) {
-    const b = view.bounds;
-    view.grid.selectAll("line").data(b ? view.gens : [], (g) => g).join("line")
-        .attr("x1", (g) => g * COL_W).attr("x2", (g) => g * COL_W)
-        .attr("y1", b ? b.y0 - view.rowH : 0).attr("y2", b ? b.y1 + view.rowH : 0);
-}
-
 /** Move every node to a new row spacing (fit() spreads the rows of a short tree). */
 function placeRows(view, rowH) {
     if (rowH === view.rowH) return;
@@ -398,7 +383,6 @@ function placeRows(view, rowH) {
     maybeAnimate(view.nodeLayer.selectAll("g.tree-node"), animate).attr("transform", (d) => `translate(${d.x},${d.y})`);
     maybeAnimate(view.canvas.select(".tree-edges").selectAll("path"), animate).attr("d", LINK);
     view.bounds = bounds(nodes, rowH);
-    drawGrid(view);
     updateGlyphs(view, d3.zoomTransform(view.svg.node()).k);
 }
 
@@ -429,14 +413,6 @@ function updateGlyphs(view, k) {
     if (view.lessPill) view.lessPill.select(".tree-pill__bridge").call(placeBridge, view.bridgeX);
 }
 
-/** Hide the generation grid when its lines would crowd together. */
-function updateGrid(view, k) {
-    const gridHidden = k * COL_W < GRID_MIN_PX;
-    if (gridHidden === view.gridHidden) return;
-    view.gridHidden = gridHidden;
-    view.grid.attr("display", gridHidden ? "none" : null);
-}
-
 // ---------- pan and zoom ----------
 
 function applyTransform(view, transform, animate) {
@@ -453,8 +429,8 @@ function legendOverlap(view, rect) {
 
 /**
  * Fit the visible tree into the pane. Below MIN_FIT_SCALE nodes get too small to
- * read, so a tree too wide at that scale shows its newest generations (the right
- * edge), and a tree too tall keeps the selected program, or else the best, in view.
+ * read, so a tree too big at that scale keeps the selected program, or else the
+ * best, or else the newest, in view.
  * { whole: true } drops that limit and shows the whole tree.
  */
 function fit(view, { whole = false } = {}) {
@@ -475,7 +451,7 @@ function fit(view, { whole = false } = {}) {
     const kx = b.x1 > b.x0 ? w / (b.x1 - b.x0) : Infinity;
     const ky = b.rows > 0 ? h / (b.rows * ROW_H) : Infinity;
     const k = Math.max(whole ? MIN_SCALE : MIN_FIT_SCALE, Math.min(MAX_FIT_SCALE, kx, ky));
-    const tx = k * (b.x1 - b.x0) <= w ? (box.left + box.right - k * (b.x0 + b.x1)) / 2 : box.right - k * b.x1;
+    const tx = k * (b.x1 - b.x0) <= w ? (box.left + box.right - k * (b.x0 + b.x1)) / 2 : focusTx(view, k, box);
     // Spread the rows in view into the height the zoom leaves free (none when the height sets the zoom).
     const rows = k < MAX_FIT_SCALE ? rowSpan(view, k, tx) : 0;
     // A readable fit also spaces rows far enough apart for full-size, numbered dots.
@@ -483,6 +459,22 @@ function fit(view, { whole = false } = {}) {
     const spread = Math.max(minSpread, rows > 0 ? Math.min(MAX_ROW_SPREAD, Math.max(1, h / (k * rows * ROW_H))) : 1);
     placeRows(view, Math.round(ROW_H * spread * 2) / 2);
     applyTransform(view, d3.zoomIdentity.translate(tx, focusTy(view, k, tx, box)).scale(k), true);
+}
+
+/** Horizontal pan for a tree wider than the pane: the focus program sits FOCUS_AT across, with no empty margin past either end. */
+function focusTx(view, k, box) {
+    const b = view.bounds;
+    const node = pickFocus(view, view.nodes.values());
+    const tx = node ? box.left + (box.right - box.left) * FOCUS_AT - k * node.x : box.right - k * b.x1;
+    return Math.min(box.left - k * b.x0, Math.max(box.right - k * b.x1, tx));
+}
+
+/** The selected program, else the best, else the newest, among the given nodes. */
+function pickFocus(view, candidates) {
+    const allowed = new Set(candidates);
+    const { model } = view;
+    return [view.selectedId, model.best && model.best.id, model.totals && model.totals.newestId]
+        .map((id) => view.nodes.get(id)).find((n) => n && allowed.has(n)) || null;
 }
 
 /** Nodes whose centre is inside the pane horizontally at zoom k and pan tx. */
@@ -502,15 +494,12 @@ function rowSpan(view, k, tx) {
  * the newest, without leaving empty space above their first row or below their last.
  */
 function focusTy(view, k, tx, box) {
-    const { model } = view;
     const shown = nodesInView(view, k, tx);
     const centreOn = (y) => (box.top + box.bottom) / 2 - k * y;
     if (!shown.length) return centreOn((view.bounds.y0 + view.bounds.y1) / 2);
     const y0 = d3.min(shown, (n) => n.y), y1 = d3.max(shown, (n) => n.y);
     if (k * (y1 - y0) <= box.bottom - box.top) return centreOn((y0 + y1) / 2);
-    const inView = new Set(shown);
-    const focus = [view.selectedId, model.best && model.best.id, model.totals && model.totals.newestId]
-        .map((id) => view.nodes.get(id)).find((n) => n && inView.has(n));
+    const focus = pickFocus(view, shown);
     const ty = centreOn(focus ? focus.y : (y0 + y1) / 2);
     return Math.min(box.top - k * y0, Math.max(box.bottom - k * y1, ty));
 }
