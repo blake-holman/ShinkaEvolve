@@ -235,3 +235,21 @@ console.log(JSON.stringify({
     )
     assert out["deltaNull"] is None
     assert out["patch"] == "Crossover" and out["deltaCls"] == "delta--down"
+
+
+def test_score_range_ignores_extreme_low_outliers():
+    out = run_node(
+        """
+console.log(JSON.stringify([
+  m.scoreRange([-67108864, -94210, -92162, -90115, -90114, -90113, -88067, -88067]),
+  m.scoreRange([0.5, 0.6, 0.7, 0.8, 0.9, 0.98]),
+  m.scoreRange([0.2, 0.3]),
+  m.scoreRange([]),
+]));
+""",
+        [],
+    )
+    assert out[0] == {"lo": -94210, "hi": -88067, "below": 1}
+    assert out[1] == {"lo": 0.5, "hi": 0.98, "below": 0}
+    assert out[2] == {"lo": 0.2, "hi": 0.3, "below": 0}
+    assert out[3] is None

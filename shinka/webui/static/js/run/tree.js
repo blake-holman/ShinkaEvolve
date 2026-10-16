@@ -38,7 +38,7 @@
 //     SVG), so a theme switch applies at once; only the score fill is computed here.
 //   - Re-rendering after an auto-refresh keeps the current pan/zoom.
 import {
-    descendantsOf, isFailedProposal, isCorrect, displayName, modelName, patchWords, parentOf,
+    descendantsOf, isFailedProposal, isCorrect, displayName, modelName, patchWords, parentOf, scoreRange,
     failureText, scoreOf, scoreDelta, deltaClass, formatScore, formatDelta, escapeHtml,
 } from "./model.js";
 
@@ -246,9 +246,10 @@ function pillFor(model, program, expanded) {
 
 /** Fill for a program: viridis over the scores of correct programs, or null (CSS decides) when unscored. */
 function scoreColour(model) {
-    const [min, max] = d3.extent(model.generations.flatMap((g) => g.scores));
+    const range = scoreRange(model.generations.flatMap((g) => g.scores));
     const mid = d3.interpolateViridis(0.5);
-    const scale = min === undefined || min === max ? () => mid : d3.scaleSequential(d3.interpolateViridis).domain([min, max]);
+    // Clamped: an outlier below the range takes the lowest colour instead of stretching the scale.
+    const scale = !range || range.lo === range.hi ? () => mid : d3.scaleSequential(d3.interpolateViridis).domain([range.lo, range.hi]).clamp(true);
     return (program) => {
         const score = scoreOf(program);
         return isCorrect(program) && Number.isFinite(score) ? scale(score) : null;

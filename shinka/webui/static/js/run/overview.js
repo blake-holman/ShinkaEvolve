@@ -24,7 +24,7 @@
 // The DOM is built once per container and database and then updated in
 // place, so a refresh never flickers and never resets the scratchpad choice
 // or the open/closed state of the section.
-import { correctPercent, displayName, escapeHtml, formatCost, formatDuration, formatScore } from "./model.js";
+import { correctPercent, displayName, escapeHtml, formatCost, formatDuration, formatScore, scoreRange } from "./model.js";
 import { PLOTLY_CONFIG, currentTheme, onThemeChange, plotlyLayout, themeColors, touchSafeAxes } from "./theme.js";
 
 const views = new WeakMap(); // container -> view
@@ -287,13 +287,27 @@ function scoreTraces(model, colors) {
 
 function scoreLayout(model, colors, width) {
     const base = plotlyLayout();
+    const yaxis = { ...base.yaxis, title: { text: "Score", font: { color: colors.fgMuted, size: 12 } } };
+    const annotations = [];
+    // Extreme low outliers would flatten every other point; zoom to the rest and say what was left out.
+    const range = scoreRange(model.generations.flatMap((g) => g.scores));
+    if (range && range.below > 0) {
+        const pad = (range.hi - range.lo || Math.abs(range.hi) || 1) * 0.08;
+        yaxis.range = [range.lo - pad, range.hi + pad];
+        annotations.push({
+            text: `${range.below} lower score${range.below === 1 ? "" : "s"} below the chart`,
+            xref: "paper", yref: "paper", x: 1, y: 1.02, xanchor: "right", yanchor: "bottom",
+            showarrow: false, font: { size: 11, color: colors.fgMuted },
+        });
+    }
     return compact({
         ...base,
         margin: { l: 56, r: 16, t: 24, b: 44 },
         hovermode: "closest",
         legend: { ...base.legend, y: 1.18 },
         xaxis: generationAxis(base.xaxis, model.maxGeneration, colors, width),
-        yaxis: { ...base.yaxis, title: { text: "Score", font: { color: colors.fgMuted, size: 12 } } },
+        yaxis,
+        annotations,
     }, width);
 }
 

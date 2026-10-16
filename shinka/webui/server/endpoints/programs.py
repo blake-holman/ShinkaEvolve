@@ -51,6 +51,10 @@ HEAVY_METADATA_KEYS = (
     "novelty_explanation",
     "diff_summary",
     "artifacts",
+    # Summarizer notes some branches copy into every program's metadata.
+    "meta_summary",
+    "meta_scratch_pad",
+    "meta_recommendations",
 )
 LLM_RESULT_KEEP = (
     "model_name",
@@ -79,6 +83,9 @@ def lighten_summary_row(row: Dict[str, Any]) -> Dict[str, Any]:
     feedback = light.get("text_feedback")
     if isinstance(feedback, str) and len(feedback) > FEEDBACK_LIMIT:
         light["text_feedback"] = feedback[:FEEDBACK_LIMIT] + "…"
+    reason = metadata.get("failure_reason")
+    if isinstance(reason, str) and len(reason) > FEEDBACK_LIMIT:
+        metadata["failure_reason"] = reason[:FEEDBACK_LIMIT] + "…"
     return light
 
 

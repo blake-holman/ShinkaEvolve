@@ -273,6 +273,30 @@ export function visibleIds(model, expanded) {
     return visible;
 }
 
+/**
+ * Score range for colours and charts that ignores extreme low outliers (one
+ * program at -67,108,864 among scores near -90,000 would otherwise flatten
+ * everything else). Scores below the lower fence (Q1 - 3 * IQR, or Q1 minus
+ * three times the Q1-to-best span when the quartiles coincide) are left out.
+ * The best score always stays in range.
+ * @returns {{lo:number, hi:number, below:number}|null} below = scores left out
+ */
+export function scoreRange(scores) {
+    const sorted = scores.filter(Number.isFinite).sort((a, b) => a - b);
+    if (!sorted.length) return null;
+    const lo = sorted[0], hi = sorted[sorted.length - 1];
+    if (sorted.length < 5) return { lo, hi, below: 0 };
+    const quantile = (q) => {
+        const i = (sorted.length - 1) * q, f = Math.floor(i);
+        return sorted[f] + (sorted[Math.min(f + 1, sorted.length - 1)] - sorted[f]) * (i - f);
+    };
+    const q1 = quantile(0.25), q3 = quantile(0.75);
+    const spread = q3 > q1 ? q3 - q1 : hi - q1;
+    const fence = q1 - 3 * spread;
+    const kept = sorted.filter((s) => s >= fence);
+    return { lo: kept[0], hi, below: sorted.length - kept.length };
+}
+
 /** Every descendant of `id` (not including it). */
 export function descendantsOf(model, id) {
     const program = model.programs.get(id);
