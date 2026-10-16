@@ -80,6 +80,7 @@ shinka = [
     "webui/*.html",
     "webui/*.png",
     "webui/*.jpg",
+    "webui/static/**/*",
 ]
 
 [dependency-groups]
@@ -91,6 +92,8 @@ dev = [
     "black",
     "isort",
     "flake8",
+    "playwright>=1.64.0",
+    "pytest-playwright>=0.10.0",
 ]
 docs = [
     "mkdocs>=1.6",

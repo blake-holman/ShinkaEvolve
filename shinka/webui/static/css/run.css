@@ -1,0 +1,387 @@
+/* Run page: design tokens, layout, and shared components.
+   Module-specific rules live in run/*.css (imported first, as CSS requires). */
+
+@import url("run/tree.css");
+@import url("run/program.css");
+@import url("run/overview.css");
+
+
+:root,
+[data-theme="light"] {
+    --bg: #f6f7f9;
+    --bg-elev: #ffffff;
+    --bg-sunken: #eef0f3;
+    --fg: #1f2328;
+    --fg-muted: #636c76;
+    --fg-faint: #6e7781;
+    --border: #d9dee3;
+    --border-strong: #b8c0c8;
+    --accent: #0969da;
+    --accent-fg: #ffffff;
+    --ok: #1a7f37;
+    --ok-bg: #dafbe1;
+    --bad: #cf222e;
+    --bad-bg: #ffebe9;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --best: #d4a017;
+    --lineage: #e8891d;
+    --select: #1f2328;
+    --code-bg: #f6f8fa;
+    --diff-add-bg: #dafbe1;
+    --diff-del-bg: #ffebe9;
+    --shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+    --radius: 6px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --fs-xs: 11px;
+    --fs-sm: 12.5px;
+    --fs: 14px;
+    --fs-lg: 16px;
+    --fs-xl: 20px;
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --status-h: 48px;
+    --toolbar-h: 36px;
+}
+
+[data-theme="dark"] {
+    --bg: #0d1117;
+    --bg-elev: #161b22;
+    --bg-sunken: #21262d;
+    --fg: #e6edf3;
+    --fg-muted: #9198a1;
+    --fg-faint: #6e7681;
+    --border: #30363d;
+    --border-strong: #484f58;
+    --accent: #4493f8;
+    --accent-fg: #0d1117;
+    --ok: #3fb950;
+    --ok-bg: #12261e;
+    --bad: #f85149;
+    --bad-bg: #2d1416;
+    --warn: #d29922;
+    --warn-bg: #2b2111;
+    --best: #e3b341;
+    --lineage: #f0883e;
+    --select: #e6edf3;
+    --code-bg: #161b22;
+    --diff-add-bg: #12261e;
+    --diff-del-bg: #2d1416;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .hljs { background: var(--code-bg); color: var(--fg); }
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: var(--fs);
+    line-height: 1.45;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.mono { font-family: var(--mono); font-size: var(--fs-sm); }
+.muted { color: var(--fg-muted); }
+.faint { color: var(--fg-faint); }
+.spacer { flex: 1; }
+.hidden, [hidden] { display: none !important; }
+
+/* ---------- status strip ---------- */
+.status {
+    height: var(--status-h);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    padding: 0 var(--sp-4);
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+}
+.status__back { white-space: nowrap; color: var(--fg-muted); }
+.status__name { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 10ch; max-width: 40%; }
+/* One row high: items that wrap onto a second row are hidden whole, lowest priority last. */
+.status__items { display: flex; flex-wrap: wrap; align-content: flex-start; column-gap: var(--sp-5); row-gap: var(--status-h); flex: 1 1 0; min-width: 0; height: 34px; overflow: hidden; }
+.status__item { display: flex; flex-direction: column; justify-content: center; height: 34px; line-height: 1.15; white-space: nowrap; }
+.status__label { font-size: var(--fs-xs); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.status__value { font-size: var(--fs); font-variant-numeric: tabular-nums; }
+.status__actions { display: flex; gap: var(--sp-2); align-items: center; flex: 0 0 auto; }
+
+/* ---------- layout ---------- */
+.layout {
+    display: flex;
+    height: calc(100% - var(--status-h));
+    min-height: 0;
+}
+.pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.pane--tree { flex: 0 0 var(--tree-width, 46%); background: var(--bg); }
+.pane--panel { flex: 1; background: var(--bg-elev); overflow: auto; border-left: 1px solid var(--border); }
+.divider { width: 6px; cursor: col-resize; background: transparent; margin-left: -3px; margin-right: -3px; z-index: 2; touch-action: none; position: relative; }
+/* A wider grip for fingers, without changing the visible line. */
+@media (pointer: coarse) { .divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -9px; right: -9px; } }
+.divider:hover, .divider.is-dragging { background: var(--accent); opacity: 0.4; }
+
+.pane__toolbar {
+    height: var(--toolbar-h);
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+    font-size: var(--fs-sm);
+}
+#tree-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.tree:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree svg { width: 100%; height: 100%; display: block; }
+
+.legend {
+    position: absolute;
+    left: var(--sp-3);
+    right: var(--sp-3);
+    bottom: var(--sp-3);
+    width: fit-content;
+    max-width: calc(100% - 2 * var(--sp-3));
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: var(--sp-4);
+    row-gap: var(--sp-1);
+    padding: var(--sp-1) var(--sp-3);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    pointer-events: none;
+}
+.legend__item { display: inline-flex; align-items: center; gap: var(--sp-1); white-space: nowrap; }
+.legend__hint { color: var(--fg-faint); white-space: nowrap; }
+.swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1px solid var(--border-strong); }
+.swatch--scale { background: linear-gradient(90deg, #440154, #21918c, #fde725); border-radius: 3px; width: 28px; }
+.swatch--best { background: var(--best); }
+.swatch--incorrect { background: var(--bad-bg); border: 1.5px solid var(--bad); }
+.swatch--proposal { background: transparent; border: 1.5px dashed var(--bad); }
+.swatch--unscored { background: var(--fg-faint); }
+.swatch--gen {
+    width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+    font: 700 9px var(--font); background: var(--bg-sunken); color: var(--fg); border-color: var(--border-strong);
+}
+.swatch--lineage { background: var(--lineage); border-radius: 2px; height: 3px; width: 18px; border: 0; }
+
+/* ---------- components ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-elev);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn:hover { border-color: var(--border-strong); background: var(--bg-sunken); text-decoration: none; }
+.btn.is-active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn--small { padding: 3px 8px; font-size: var(--fs-xs); }
+.btn--icon { padding: 4px 8px; font-size: var(--fs-lg); line-height: 1; }
+
+.pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    background: var(--bg-sunken);
+    color: var(--fg-muted);
+    white-space: nowrap;
+}
+.pill--ok { background: var(--ok-bg); color: var(--ok); }
+.pill--bad { background: var(--bad-bg); color: var(--bad); }
+.pill--warn { background: var(--warn-bg); color: var(--warn); }
+.pill--accent { background: var(--accent); color: var(--accent-fg); }
+/* "best" looks the same everywhere: gold, like the ring in the tree and the legend swatch. */
+.pill--best { background: var(--best); color: #1f2328; }
+
+.card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--sp-3) var(--sp-4);
+}
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--sp-3); }
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat__label { font-size: var(--fs-xs); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat__value { font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat__sub { font-size: var(--fs-sm); color: var(--fg-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--sp-1) var(--sp-4); margin: 0; font-size: var(--fs-sm); }
+.kv dt { color: var(--fg-muted); margin: 0; }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-word; }
+
+details.section { border-top: 1px solid var(--border); }
+details.section > summary {
+    cursor: pointer;
+    padding: var(--sp-3) var(--sp-4);
+    font-weight: 600;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    user-select: none;
+}
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::before { content: "\25B8"; color: var(--fg-faint); font-size: var(--fs-xs); }
+details.section[open] > summary::before { content: "\25BE"; }
+details.section > .section__body { padding: 0 var(--sp-4) var(--sp-4); }
+
+pre.log, pre.code {
+    margin: 0;
+    padding: var(--sp-3);
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: var(--fs-sm);
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre;
+    max-height: 60vh;
+}
+pre.log { white-space: pre-wrap; word-break: break-word; }
+
+.delta--up { color: var(--ok); }
+.delta--down { color: var(--bad); }
+.delta--flat { color: var(--fg-muted); }
+
+.empty { padding: var(--sp-5); color: var(--fg-muted); text-align: center; }
+
+.label-short { display: none; }
+.panel-back { display: none; }
+
+.toast {
+    position: fixed;
+    z-index: 30; /* above the panel and back bar on phones */
+    bottom: var(--sp-4);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: var(--sp-2) var(--sp-4);
+    background: var(--fg);
+    color: var(--bg);
+    border-radius: var(--radius);
+    font-size: var(--fs-sm);
+    box-shadow: var(--shadow);
+}
+
+.tooltip {
+    position: absolute;
+    pointer-events: none;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-elev);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: var(--fs-sm);
+    max-width: 320px;
+    z-index: 5;
+}
+
+
+/* ---------- phones, touch tablets, narrow windows: one pane at a time ----------
+   Keep this query in step with SINGLE_PANE_QUERY in main.js. The tree fills the
+   screen. Opening a program or the overview covers it, and the status strip,
+   with the panel and a back bar; the browser's back button closes it too. */
+@media (max-width: 900px), (pointer: coarse) and (max-width: 1199px) {
+    :root { --status-h: 92px; --back-h: 44px; }
+    .status {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-rows: 44px 40px;
+        column-gap: var(--sp-3);
+        row-gap: 0;
+        padding: 0 var(--sp-3);
+        align-items: center;
+    }
+    .status__back { grid-row: 1; grid-column: 1; }
+    .status__name { grid-row: 1; grid-column: 2; max-width: none; min-width: 0; font-size: var(--fs); }
+    .status__actions { grid-row: 1; grid-column: 3; }
+    .status__items { grid-row: 2; grid-column: 1 / -1; height: 34px; column-gap: var(--sp-4); }
+    .status__item { height: 34px; }
+    #link-advanced { display: none; }
+    .label-long { display: none; }
+    .label-short { display: inline; }
+
+    .divider { display: none; }
+    /* !important: main.js sets the desktop tree width inline. */
+    .pane--tree { flex: 1 1 auto !important; }
+    .pane--panel {
+        display: none;
+        position: fixed;
+        top: var(--back-h);
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        border-left: 0;
+        overscroll-behavior: contain;
+    }
+    .panel-back {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--back-h);
+        z-index: 21;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: 0 var(--sp-3);
+        background: var(--bg-elev);
+        border-bottom: 1px solid var(--border);
+    }
+    .panel-back__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); }
+    body.is-panel-open .pane--panel { display: block; }
+    body.is-panel-open .panel-back { display: flex; }
+    /* No scroll boxes inside the panel: a swipe anywhere scrolls the panel itself.
+       program.js renders shorter logs on these screens. */
+    pre.log, pre.code, .diff { max-height: none; }
+
+    .pane__toolbar { padding: 0 var(--sp-2); gap: var(--sp-1); }
+    .legend { font-size: 10px; column-gap: var(--sp-3); padding: 2px var(--sp-2); left: var(--sp-2); bottom: var(--sp-2); }
+    .legend__hint { display: none; }
+    .btn { padding: 6px 10px; }
+}
+
+/* Phones turned sideways: one row of status, so the tree keeps most of the height. */
+@media (max-width: 900px) and (max-height: 500px), (pointer: coarse) and (max-width: 1199px) and (max-height: 500px) {
+    :root { --status-h: 44px; }
+    .status { grid-template-columns: auto minmax(0, 12ch) minmax(0, 1fr) auto; grid-template-rows: 44px; }
+    .status__items { grid-row: 1; grid-column: 3; height: 34px; }
+    .status__actions { grid-column: 4; }
+}
+
+/* Very narrow phones: the back link becomes an arrow so the run name keeps its room. */
+@media (max-width: 420px) {
+    .status__back { font-size: 0; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: -12px; }
+    .status__back::before { content: "\2190"; font-size: var(--fs-lg); }
+    #tree-summary { flex-shrink: 0; }
+}
+
+/* Touch screens: no hover, so no tooltip and no mouse or key hints. */
+@media (hover: none) {
+    .tree-tooltip { display: none !important; }
+    .legend__hint { display: none; }
+}

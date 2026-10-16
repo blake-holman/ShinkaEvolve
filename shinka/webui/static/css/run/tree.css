@@ -1,0 +1,64 @@
+/* Styles for static/js/run/tree.js. Use the tokens defined in run.css. */
+
+.tree--d3 { --tree-css: loaded; }
+
+.tree-svg { cursor: grab; user-select: none; }
+.tree-svg:active { cursor: grabbing; }
+
+
+.tree-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.tree-edge.is-lineage { stroke: var(--lineage); stroke-width: 2.5; }
+.tree-edge.is-failed { stroke: var(--bad); stroke-opacity: 0.5; stroke-dasharray: 3 3; }
+
+.tree-node { cursor: pointer; }
+/* tree.js updateGlyphs() sets these variables on .tree-nodes for every zoom level,
+   so dots, rings and pills keep a readable size on screen when the tree is zoomed out. */
+.tree-dot, .tree-ring { transform: scale(var(--tree-node-scale, 1)); }
+.tree-pill { transform: translateX(var(--tree-pill-x, 17px)) scale(var(--tree-pill-scale, 1)); }
+/* Dot outlines keep their screen width at every zoom, so the lightest and darkest
+   viridis fills stay visible against the pane in both themes (--fg-faint is above 3:1 on --bg). */
+.tree-dot { stroke: var(--fg-faint); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tree-dot.is-unscored { fill: var(--fg-faint); }
+/* These two match .swatch--incorrect and .swatch--proposal in the legend. */
+.tree-dot.is-incorrect { fill: var(--bad-bg); stroke: var(--bad); stroke-width: 1.5; }
+.tree-dot.is-failed { fill: var(--bg); stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.tree-node:hover .tree-dot { stroke: var(--fg); }
+
+.tree-ring { fill: none; pointer-events: none; vector-effect: non-scaling-stroke; }
+.tree-ring--best { stroke: var(--best); stroke-width: 2.5; }
+.tree-ring--selected { stroke: var(--select); stroke-width: 3; }
+
+.tree-pill { cursor: pointer; }
+/* Keeps a mouse hover alive between dot and pill. A touch on it selects the node (tree.js). */
+.tree-pill__bridge { fill: none; pointer-events: all; }
+.tree-pill__box { fill: var(--bg-elev); stroke: var(--border-strong); stroke-width: 1; }
+.tree-pill text { font: 600 10px var(--font); fill: var(--fg-muted); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.tree-pill:hover .tree-pill__box { fill: var(--bg-sunken); stroke: var(--accent); }
+.tree-pill:hover text { fill: var(--fg); }
+
+/* Generation number inside each dot. Scored dots get an inline fill from tree.js
+   (dark or light for contrast with the viridis colour); the rest are coloured here. */
+.tree-label {
+    transform: scale(var(--tree-node-scale, 1));
+    font-family: var(--font);
+    font-weight: 700;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+    fill: var(--fg);
+}
+.tree-dot.is-unscored + .tree-label { fill: var(--bg-elev); }
+.tree-label--3 { font-size: 8px; }
+.tree-label--4 { font-size: 7.5px; letter-spacing: -0.5px; }
+.tree-dot.is-incorrect + .tree-label, .tree-dot.is-failed + .tree-label { fill: var(--bad); }
+.tree-nodes--no-labels .tree-label,
+.tree-nodes--no-long-labels .tree-label--3,
+.tree-nodes--no-long-labels .tree-label--4 { display: none; }
+
+.tree-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+
+.tree-tooltip { line-height: 1.4; }
+.tree-tooltip__name { font-weight: 600; overflow-wrap: anywhere; }
+.tree-tooltip__fail { color: var(--bad); overflow-wrap: anywhere; }

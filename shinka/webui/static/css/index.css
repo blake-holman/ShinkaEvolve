@@ -1,0 +1,273 @@
+/* Landing page: design tokens (same names and values as run.css), header, run table. */
+
+:root,
+[data-theme="light"] {
+    --bg: #f6f7f9;
+    --bg-elev: #ffffff;
+    --bg-sunken: #eef0f3;
+    --fg: #1f2328;
+    --fg-muted: #636c76;
+    --fg-faint: #6e7781;
+    --border: #d9dee3;
+    --border-strong: #b8c0c8;
+    --accent: #0969da;
+    --accent-fg: #ffffff;
+    --ok: #1a7f37;
+    --ok-bg: #dafbe1;
+    --bad: #cf222e;
+    --bad-bg: #ffebe9;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+    --radius: 6px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --fs-xs: 11px;
+    --fs-sm: 12.5px;
+    --fs: 14px;
+    --fs-lg: 16px;
+    --fs-xl: 20px;
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+}
+
+[data-theme="dark"] {
+    --bg: #0d1117;
+    --bg-elev: #161b22;
+    --bg-sunken: #21262d;
+    --fg: #e6edf3;
+    --fg-muted: #9198a1;
+    --fg-faint: #6e7681;
+    --border: #30363d;
+    --border-strong: #484f58;
+    --accent: #4493f8;
+    --accent-fg: #0d1117;
+    --ok: #3fb950;
+    --ok-bg: #12261e;
+    --bad: #f85149;
+    --bad-bg: #2d1416;
+    --warn: #d29922;
+    --warn-bg: #2b2111;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: var(--fs);
+    line-height: 1.45;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.muted { color: var(--fg-muted); }
+.faint { color: var(--fg-faint); }
+.spacer { flex: 1; }
+.hidden, [hidden] { display: none !important; }
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--sp-4) var(--sp-5) var(--sp-5);
+}
+
+/* ---------- header ---------- */
+.header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding-bottom: var(--sp-4);
+    margin-bottom: var(--sp-4);
+    border-bottom: 1px solid var(--border);
+}
+.logo { width: 36px; height: 36px; border-radius: var(--radius); }
+.header__text h1 { margin: 0; font-size: var(--fs-xl); font-weight: 600; line-height: 1.2; }
+.header__text p { margin: 0; font-size: var(--fs-sm); }
+
+.search {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-2) 0 var(--sp-3);
+    height: 30px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.search:focus-within { border-color: var(--accent); }
+.search input {
+    width: 180px;
+    border: 0;
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    outline: none;
+}
+.search input::placeholder { color: var(--fg-faint); }
+.search input::-webkit-search-cancel-button { display: none; }
+.search__hint { font-size: var(--fs-xs); color: var(--fg-faint); white-space: nowrap; }
+kbd {
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    background: var(--bg-sunken);
+    font: inherit;
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+}
+
+/* ---------- components (copied from run.css) ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-elev);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn:hover { border-color: var(--border-strong); background: var(--bg-sunken); text-decoration: none; }
+.btn--icon { padding: 4px 8px; font-size: var(--fs-lg); line-height: 1; }
+
+.pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    background: var(--bg-sunken);
+    color: var(--fg-muted);
+    white-space: nowrap;
+}
+.pill--ok { background: var(--ok-bg); color: var(--ok); }
+.pill--bad { background: var(--bad-bg); color: var(--bad); }
+.pill--warn { background: var(--warn-bg); color: var(--warn); }
+
+.card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+/* The table wrapper is a size container so the task header line can be capped at
+   the visible width (100cqw) when a narrow viewport makes the table scroll sideways. */
+.card--table { overflow-x: auto; container-type: inline-size; }
+
+/* ---------- loading and empty states ---------- */
+.loading, .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 64px var(--sp-5);
+    text-align: center;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.empty__title { font-size: var(--fs-lg); font-weight: 600; }
+.spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- run table ---------- */
+.runs { width: 100%; border-collapse: collapse; }
+.runs th, .runs td { padding: var(--sp-2) var(--sp-3); text-align: left; white-space: nowrap; }
+.runs th {
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border);
+}
+.runs th:first-child { width: 40%; }
+/* max-width: 0 lets the name column shrink below its text, so long names end in an
+   ellipsis (the full path is in the row title) and the numeric columns stay visible. */
+.run-row__name, .task-header td {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.run-row__name { min-width: 160px; }
+.runs th.numeric, .runs td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.runs th.sortable { cursor: pointer; user-select: none; }
+.runs th.sortable:hover, .runs th.is-sorted { color: var(--fg); }
+.sort-indicator { font-size: 9px; margin-left: 2px; }
+
+.runs tbody tr { border-top: 1px solid var(--border); }
+.runs tbody tr:first-child { border-top: 0; }
+.run-row { cursor: pointer; }
+.run-row:hover { background: var(--bg-sunken); }
+.run-row:hover .pill, .task-header:hover .pill { box-shadow: inset 0 0 0 1px var(--border); }
+.run-row__name { font-weight: 500; }
+.run-row__name a { color: var(--fg); }
+.run-row:hover .run-row__name a { color: var(--accent); }
+.run-row td { font-size: var(--fs); }
+.run-row td.numeric { font-size: var(--fs-sm); }
+
+.task-header { cursor: pointer; user-select: none; background: var(--bg); }
+.task-header:hover { background: var(--bg-sunken); }
+.task-header td { font-weight: 600; font-size: var(--fs-sm); }
+.task-header__toggle {
+    display: inline-block;
+    width: 16px;
+    color: var(--fg-faint);
+    transition: transform 0.15s ease;
+}
+.task-header.is-collapsed .task-header__toggle { transform: rotate(-90deg); }
+.task-header__line { display: flex; align-items: center; min-width: 0; max-width: calc(100cqw - 2 * var(--sp-3)); }
+.task-header__toggle, .task-header__count { flex: none; }
+.task-header__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.task-header__count { margin-left: var(--sp-2); }
+
+/* Below about 960 px the full table no longer fits its card. */
+@media (max-width: 960px) {
+    .container { padding: var(--sp-3); }
+    .search__hint, .header__text p { display: none; }
+    .search input { width: 120px; }
+    /* Phones: the header wraps, and the search box takes its own row. */
+    .header { flex-wrap: wrap; row-gap: var(--sp-2); }
+    .header .spacer { display: none; }
+    .header__text { flex: 1 1 auto; }
+    .search { order: 10; flex: 1 1 100%; }
+    .search input { width: 100%; }
+    .header .btn:not(.btn--icon) { display: none; }
+    /* Phones keep Run, Status, Best score, and Updated; the rest is on the run page. */
+    .runs th:nth-child(n+4):nth-child(-n+7),
+    .runs td:nth-child(n+4):nth-child(-n+7):not([colspan]) { display: none; }
+    /* The name column takes whatever the other three leave and ends in an ellipsis. */
+    .runs th:first-child { width: 100%; }
+    .runs th, .runs td { padding: var(--sp-2) 6px; }
+    .runs th { font-size: 10px; }
+    .run-row__name { min-width: 0; }
+    .runs td[data-stat="best_score"] .muted { display: none; }
+}
+
+/* The narrowest phones drop Status too (the run page shows it); the name needs the room. */
+@media (max-width: 420px) {
+    .runs th:nth-child(2), .runs td:nth-child(2):not([colspan]) { display: none; }
+}
