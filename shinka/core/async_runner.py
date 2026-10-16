@@ -88,6 +88,9 @@ from shinka.utils.languages import get_evolve_comment_prefix
 
 logger = logging.getLogger(__name__)
 
+PROPOSAL_ERROR_BACKOFF = 30
+PROPOSAL_ERROR_BACKOFF_MAX = 600
+
 _WANDB_CANDIDATE_QUEUE_SIZE = 256
 _WANDB_DROP_WARNING_INTERVAL_SECONDS = 30.0
 _WANDB_POPULATION_INTERVAL_SECONDS = 5.0
@@ -2764,7 +2767,7 @@ class ShinkaEvolveRunner:
 
             async with AsyncExitStack() as worker_scope:
                 worker = await self._acquire_proposal_worker(worker_scope, gen_dir)
-                return await self._generate_evolved_proposal(
+                result = await self._generate_evolved_proposal(
                     generation,
                     task_id,
                     exec_fname,
@@ -2778,6 +2781,8 @@ class ShinkaEvolveRunner:
                     worker_scope=worker_scope,
                     worker=worker,
                 )
+                self._consecutive_proposal_errors = 0
+                return result
 
         except Exception as e:
             logger.error(f"Error generating proposal for generation {generation}: {e}")
@@ -2800,6 +2805,13 @@ class ShinkaEvolveRunner:
                     failure_stage="proposal_worker",
                     failure_reason=str(e),
                 )
+                # A broken worker or input fails every proposal at once; wait longer
+                # after each consecutive error so it cannot use up the generation budget.
+                errors = getattr(self, "_consecutive_proposal_errors", 0) + 1
+                self._consecutive_proposal_errors = errors
+                delay = min(PROPOSAL_ERROR_BACKOFF_MAX, PROPOSAL_ERROR_BACKOFF * 2 ** (errors - 1))
+                logger.warning(f"Waiting {delay}s after {errors} consecutive proposal errors")
+                await asyncio.sleep(delay)
             return None
         finally:
             # Cleanup: remove lock file and task tracking

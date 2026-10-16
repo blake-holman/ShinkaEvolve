@@ -204,12 +204,16 @@ def test_worker_acquisition_failure_is_recorded_and_cleans_lock(tmp_path):
         runner = make_runner(tmp_path)
         runner.worker_pool.acquire = Mock(side_effect=OSError("worker offline"))
         runner._run_patch_async = AsyncMock()
-        assert await runner._generate_proposal_async(1, "generation-1") is None
+        with patch("shinka.core.async_runner.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            assert await runner._generate_proposal_async(1, "generation-1") is None
+            assert await runner._generate_proposal_async(2, "generation-2") is None
         runner._run_patch_async.assert_not_called()
         failure = runner._record_terminal_failed_proposal.call_args.kwargs
         assert failure["failure_stage"] == "proposal_worker"
         assert failure["failure_reason"] == "worker offline"
         assert not (tmp_path / "gen_1/.generation_lock").exists()
+        # Consecutive errors wait longer each time, so they cannot burn the budget.
+        assert [call.args[0] for call in sleep.await_args_list] == [30, 60]
     asyncio.run(scenario())
 
 

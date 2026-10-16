@@ -239,7 +239,12 @@ class WorkerPool:
             if immutable and entry["kind"] != "directory":
                 previous = self.baseline.setdefault(str(path), entry)
                 if previous != entry:
-                    raise RuntimeError(f"Mirrored input changed during the run: {path}")
+                    # Someone edited a mirrored project file during the run. Workers
+                    # receive the new version at their next lease, as local agents do.
+                    logger.warning("Mirrored input changed during the run; resyncing: %s", path)
+                    self.baseline[str(path)] = entry
+                    for synced in self.synced.values():
+                        synced.discard(str(path))
             entries.append(entry)
             if entry["kind"] == "directory":
                 for child in sorted(path.iterdir()):
@@ -282,8 +287,7 @@ class WorkerPool:
             return
         async with self.inventory_lock:
             entries = await asyncio.to_thread(self.entries, self.workspace.get("mirrors", []), True)
-        # Shared inputs are immutable. After initial setup only append new paths;
-        # never rewrite a baseline directory while another generation uses it.
+        # Only new or changed paths are sent after initial setup.
         synced = self.synced[connection.worker["name"]]
         entries = [entry for entry in entries if entry["path"] not in synced]
         if not entries:

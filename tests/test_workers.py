@@ -96,7 +96,7 @@ def test_endpoint_marks_commands_as_supervised(tmp_path, monkeypatch):
     run(scenario())
 
 
-def test_inventory_preserves_lake_and_runtime_links_and_rejects_changed_baseline(tmp_path):
+def test_inventory_preserves_lake_and_runtime_links_and_tracks_changed_baseline(tmp_path):
     root = tmp_path / "source"
     for directory in (".git", ".lake", "node_modules", "__pycache__"):
         (root / directory).mkdir(parents=True)
@@ -121,8 +121,8 @@ def test_inventory_preserves_lake_and_runtime_links_and_rejects_changed_baseline
     (root / ".lake/new").write_text("new immutable version")
     pool.entries([root], immutable=True)
     (root / ".lake/file").write_text("changed")
-    with pytest.raises(RuntimeError, match="changed during"):
-        pool.entries([root], immutable=True)
+    changed = {entry["path"]: entry for entry in pool.entries([root], immutable=True)}
+    assert pool.baseline[str(root / ".lake/file")] == changed[str(root / ".lake/file")]
 
 
 def test_interrupted_inventory_preserves_validated_hashes_and_rechecks_changes(tmp_path, monkeypatch):
@@ -291,6 +291,25 @@ def test_mirror_refresh_only_adds_new_paths(tmp_path):
         (source / "new").write_text("new immutable input")
         await pool.mirrors(connection)
         assert [entry["path"] for entry in pool.sync.call_args.args[1]] == [str(source / "new")]
+        await pool.mirrors(connection)
+        assert pool.sync.await_count == 2
+    run(scenario())
+
+
+def test_mirror_resyncs_a_file_edited_during_the_run(tmp_path):
+    # Blake edits the live project while a run mirrors it; the lease must not fail.
+    async def scenario():
+        source = tmp_path / "project"
+        source.mkdir()
+        (source / "probe.py").write_text("first")
+        worker = {"name": "remote", "launch_command": ["unused"]}
+        pool = WorkerPool([worker], {"mirrors": [str(source)]}, tmp_path / "run")
+        pool.sync = AsyncMock()
+        connection = SimpleNamespace(worker=worker)
+        await pool.mirrors(connection)
+        (source / "probe.py").write_text("second version")
+        await pool.mirrors(connection)
+        assert [entry["path"] for entry in pool.sync.call_args.args[1]] == [str(source / "probe.py")]
         await pool.mirrors(connection)
         assert pool.sync.await_count == 2
     run(scenario())
