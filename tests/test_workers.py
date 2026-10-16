@@ -15,7 +15,7 @@ import zlib
 
 import pytest
 
-from shinka.core.workers import Connection, WorkerConnectionError, WorkerPool, current_worker, validate_worker_config
+from shinka.core.workers import Connection, WorkerConnectionError, WorkerLease, WorkerPool, current_worker, validate_worker_config
 from shinka.core.worker_endpoint import CHUNK_SIZE
 
 
@@ -293,6 +293,27 @@ def test_mirror_refresh_only_adds_new_paths(tmp_path):
         assert [entry["path"] for entry in pool.sync.call_args.args[1]] == [str(source / "new")]
         await pool.mirrors(connection)
         assert pool.sync.await_count == 2
+    run(scenario())
+
+
+def test_remote_headless_syncs_prompt_and_its_program_files(tmp_path):
+    async def scenario():
+        worker = {"name": "remote", "launch_command": ["unused"]}
+        pool = WorkerPool([worker], {}, tmp_path)
+        pool.sync = AsyncMock()
+        work_dir = tmp_path / "gen_1"
+        programs = work_dir / "headless_prompts/programs"
+        programs.mkdir(parents=True)
+        (work_dir / "round.json").write_text("{}")
+        prompt = work_dir / "headless_prompts/prompt_1.md"
+        prompt.write_text("Program file: ...")
+        (programs / "0123456789abcdef.lean").write_text("-- EVOLVE-BLOCK-START")
+        lease = WorkerLease(pool, worker, work_dir)
+        lease.execute = AsyncMock(side_effect=lambda *args: pool.sync.assert_awaited_once())
+        await lease.run_headless(MODEL, ["headless", "codex", "--prompt-file", str(prompt), "--usage"], 5)
+        lease.execute.assert_awaited_once()
+        assert [entry["path"] for entry in pool.sync.call_args.args[1]] == [
+            str(prompt), str(programs), str(programs / "0123456789abcdef.lean")]
     run(scenario())
 
 

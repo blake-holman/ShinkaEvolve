@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -17,6 +19,7 @@ from pydantic import BaseModel
 import psutil
 
 from shinka.llm.constants import TIMEOUT
+from shinka.utils.languages import get_language_extension
 
 from .result import QueryResult
 
@@ -27,6 +30,7 @@ HEADLESS_TIMEOUT_ENV = "SHINKA_HEADLESS_TIMEOUT"
 _VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 _CLAUDE_TRANSIENT_RETRIES = 2
 _CLAUDE_TRANSIENT_BACKOFF_SECONDS = 3.0
+PROGRAM_FENCE = re.compile(r"^```(\w+)\n(.*?)\n```$", re.M | re.S)
 
 
 @dataclass(frozen=True)
@@ -128,6 +132,43 @@ def _render_prompt(
     )
 
 
+def _program_files(text: str, directory: Path) -> str:
+    """Write each fenced program to a file and cite the file instead.
+
+    Program fences are those containing EVOLVE-BLOCK-START. Other fenced
+    blocks (commands, format examples) stay inline.
+    """
+
+    def replace(match: re.Match) -> str:
+        language, code = match.groups()
+        if "EVOLVE-BLOCK-START" not in code:
+            return match.group(0)
+        try:
+            extension = get_language_extension(language)
+        except ValueError:
+            return match.group(0)
+        data = code.encode("utf-8")
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{hashlib.sha256(data).hexdigest()[:16]}.{extension}"
+        if not path.is_file() or path.read_bytes() != data:
+            path.write_bytes(data)
+        lines = code.removesuffix("\n").split("\n")
+        markers = ", ".join(
+            f"{marker} on line {number}"
+            for number, line in enumerate(lines, 1)
+            for marker in ("EVOLVE-BLOCK-START", "EVOLVE-BLOCK-END")
+            if marker in line
+        )
+        return (
+            f"Program file: {path} ({len(lines)} lines, {len(data)} bytes; {markers}). "
+            "The source is not repeated in this message. Read the parts you need "
+            "(rg -n, sed -n 'START,ENDp'); the file stays available after context "
+            "compaction. Copy it before editing."
+        )
+
+    return PROGRAM_FENCE.sub(replace, text)
+
+
 def _write_prompt_file(
     *,
     work_dir: str | None,
@@ -139,8 +180,19 @@ def _write_prompt_file(
     prompt_dir = resolved_work_dir / "headless_prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = prompt_dir / f"prompt_{uuid.uuid4().hex}.md"
+    programs = prompt_dir / "programs"
+    # The history is rendered as JSON, so its programs are moved beforehand.
+    msg_history = [
+        {**item, "content": _program_files(item["content"], programs)}
+        if isinstance(item.get("content"), str)
+        else item
+        for item in msg_history
+    ]
     prompt_path.write_text(
-        _render_prompt(msg=msg, system_msg=system_msg, msg_history=msg_history),
+        _program_files(
+            _render_prompt(msg=msg, system_msg=system_msg, msg_history=msg_history),
+            programs,
+        ),
         encoding="utf-8",
     )
     return prompt_path

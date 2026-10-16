@@ -477,7 +477,11 @@ class WorkerLease:
                     path = Path(command[index + 1]).absolute()
                     if self.work_dir not in path.parents:
                         raise ValueError("Headless prompt must be inside the leased generation")
-                    await self.pool.sync(self.connection, await asyncio.to_thread(self.pool.entries, [path]))
+                    # The prompt cites program files written next to it. Syncing the
+                    # whole generation again would overwrite the worker's round.json.
+                    programs = path.parent / "programs"
+                    roots = [path, programs] if programs.is_dir() else [path]
+                    await self.pool.sync(self.connection, await asyncio.to_thread(self.pool.entries, roots))
         if model.agent == "claude":
             command = ["env", "-u", "ANTHROPIC_API_KEY", "-u", "CLAUDE_CODE_OAUTH_TOKEN",
                        "/bin/sh", "-c", shlex.join(command)]

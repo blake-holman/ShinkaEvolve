@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 import stat
@@ -23,6 +24,7 @@ from shinka.llm.providers.headless import (
     _build_headless_command,
     _query_result,
     _run_headless_command_async,
+    _write_prompt_file,
     parse_headless_model,
     query_headless,
     query_headless_async,
@@ -280,6 +282,35 @@ def test_query_headless_invokes_command_and_parses_usage(tmp_path, monkeypatch):
     assert Path(result.kwargs["headless_prompt_path"]).exists()
 
 
+def test_prompt_moves_program_fences_to_files(tmp_path):
+    code = "# EVOLVE-BLOCK-START\ndef score():\n    return 0.0\n# EVOLVE-BLOCK-END\n"
+    msg = f"# Current program\n\n```python\n{code}\n```\n\nRun:\n\n```bash\nls -la\n```\n"
+    history = [{"role": "user", "content": f"```python\n{code}\n```"}]
+    program = (
+        tmp_path / "headless_prompts/programs"
+        / f"{hashlib.sha256(code.encode()).hexdigest()[:16]}.py"
+    )
+
+    def write_prompt():
+        return _write_prompt_file(
+            work_dir=str(tmp_path), msg=msg, system_msg="system", msg_history=history
+        )
+
+    write_prompt()
+    program.write_text("edited", encoding="utf-8")
+    text = write_prompt().read_text(encoding="utf-8")
+
+    assert program.read_bytes() == code.encode()
+    assert (
+        f"Program file: {program} (4 lines, {len(code)} bytes; "
+        "EVOLVE-BLOCK-START on line 1, EVOLVE-BLOCK-END on line 4)"
+    ) in text
+    assert text.count("Program file:") == 2
+    assert "return 0.0" not in text
+    assert "```bash\nls -la\n```" in text
+    assert history[0]["content"].startswith("```python")
+
+
 def test_query_headless_invokes_claude_through_shell(tmp_path, monkeypatch):
     fake_headless = _make_fake_headless(tmp_path)
     monkeypatch.setenv("SHINKA_HEADLESS_COMMAND", _fake_headless_command(fake_headless))
@@ -493,7 +524,10 @@ def test_shinka_run_full_headless_cli_mutation_succeeds(tmp_path, monkeypatch):
     assert generation_prompts, sorted(str(path) for path in results_dir.rglob("*"))
     attempt_prompts = list(results_dir.glob("gen_1/attempts/**/headless_prompt.md"))
     assert attempt_prompts, sorted(str(path) for path in results_dir.rglob("*"))
-    assert "Current program" in attempt_prompts[0].read_text(encoding="utf-8")
+    prompt_text = attempt_prompts[0].read_text(encoding="utf-8")
+    assert "Current program" in prompt_text
+    assert "Program file:" in prompt_text and "def score" not in prompt_text
+    assert list(results_dir.glob("gen_1/headless_prompts/programs/*.py"))
 
     metrics_files = list(results_dir.glob("gen_1/**/metrics.json"))
     assert metrics_files
