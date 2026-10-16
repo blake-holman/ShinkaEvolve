@@ -110,3 +110,12 @@ def test_local_worker_runs_inside_memory_limited_scope(tmp_path):
     result = asyncio.run(scenario())
     assert result.returncode == 0
     assert ".scope" in result.stdout
+
+
+def test_local_memory_scope_keeps_agent_after_oom_kill():
+    from shinka.core.workers import local_endpoint_command
+
+    command = local_endpoint_command({"name": "local", "memory_max": "14G"})
+    # One Lean process hitting the limit must not stop the whole slot.
+    assert "OOMPolicy=continue" in command
+    assert "MemoryMax=14G" in command

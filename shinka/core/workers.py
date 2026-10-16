@@ -89,14 +89,15 @@ def local_endpoint_command(worker):
     With ``memory_max`` (a systemd size such as ``14G``), the endpoint and every
     agent and Lean process it starts run in their own transient systemd scope
     with that memory limit and no swap, so a runaway agent is killed inside its
-    scope instead of pushing the coordinator into swap.
+    scope instead of pushing the coordinator into swap. OOMPolicy=continue kills
+    only the offending process (normally Lean); the agent sees it fail and goes on.
     """
     endpoint = [sys.executable, str(Path(__file__).with_name("worker_endpoint.py"))]
     limit = worker.get("memory_max")
     if not limit:
         return endpoint
     return ["systemd-run", "--user", "--scope", "--quiet", "--collect",
-            "-p", f"MemoryMax={limit}", "-p", "MemorySwapMax=0",
+            "-p", f"MemoryMax={limit}", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue",
             *endpoint]
 
 
