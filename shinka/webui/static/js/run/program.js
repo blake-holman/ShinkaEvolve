@@ -51,7 +51,11 @@ const COPY_FLASH_MS = 1500;
 const SHORT_ID_HEAD = 8;        // characters kept when a long id is shortened
 const VIEW_STATE_MAX = 500;     // per-program view states kept; the oldest is dropped first
 const RENDER_CACHE_MAX = 12;    // highlighted code and diff tables kept for re-renders
-const SECTIONS = [["evaluation", "Evaluation", true], ["llm", "LLM response", false], ["details", "Details", false]];
+// [key, title, open by default]. The LLM response comes first, above the code: it
+// explains what the program tries before the reader looks at the source.
+const SECTIONS = [["llm", "What the LLM did", true], ["evaluation", "Evaluation", true],
+    ["reply", "Full LLM reply", false], ["details", "Details", false]];
+const SECTIONS_ABOVE_CODE = new Set(["llm"]);
 const COST_PARTS = "LLM + embedding + novelty + meta";
 
 const viewStates = new Map();       // `${dbPath}\0${id}` -> { mode, changesOnly, open }
@@ -123,14 +127,18 @@ function memo(kind, ctx, inputs, build) {
 }
 
 function skeletonHtml(program, state) {
-    const sections = SECTIONS.map(([key, title]) =>
-        `<details class="section" data-section="${key}"${state.open[key] ? " open" : ""}><summary>${title}</summary><div class="section__body"></div></details>`).join("");
+    const section = ([key, title]) =>
+        `<details class="section" data-section="${key}"${state.open[key] ? " open" : ""}><summary>${title}</summary><div class="section__body"></div></details>`;
+    const above = SECTIONS.filter(([key]) => SECTIONS_ABOVE_CODE.has(key)).map(section).join("");
+    const below = SECTIONS.filter(([key]) => !SECTIONS_ABOVE_CODE.has(key)).map(section).join("");
     return `<div class="program" data-program-id="${escapeHtml(program.id)}">
         <div class="program__top">
             <header class="program__header" data-section="header"></header>
+        </div>${above}
+        <div class="program__top program__top--code">
             <div class="program__toolbar" data-section="toolbar"></div>
             <div class="program__code" data-section="code"></div>
-        </div>${sections}</div>`;
+        </div>${below}</div>`;
 }
 
 /**
@@ -144,6 +152,7 @@ function renderAll(root, ctx) {
     setSection(root, "code", codeAreaHtml(ctx));
     setSection(root, "evaluation", details ? evaluationHtml(ctx, details) : pendingHtml(ctx, "evaluation output"));
     setSection(root, "llm", details ? llmHtml(ctx.program, details) : pendingHtml(ctx, "LLM response"));
+    setSection(root, "reply", details ? rawReplyHtml(ctx.program, details) : pendingHtml(ctx, "LLM reply"));
     setSection(root, "details", detailsHtml(ctx, details));
 }
 
@@ -533,14 +542,22 @@ function plotsHtml(api, plots) {
 }
 
 /** Patch description, reasoning, response and token counts, all from the details response. */
+/** Above the code: what the LLM says it did and why. */
 function llmHtml(program, details) {
     const m = details.metadata || {};
     const result = m.llm_result && typeof m.llm_result === "object" ? m.llm_result : {};
     const blocks = [
         logBlock("Patch description", m.patch_description),
         logBlock("Reasoning", m.thought || result.thought),
-        logBlock("Response", result.content || result.msg),
     ].filter(Boolean);
+    return blocks.length ? blocks.join("") : `<p class="muted">The LLM left no description for this program.</p>`;
+}
+
+/** Below the code, collapsed: the full reply and its usage. */
+function rawReplyHtml(program, details) {
+    const m = details.metadata || {};
+    const result = m.llm_result && typeof m.llm_result === "object" ? m.llm_result : {};
+    const blocks = [logBlock("Response", result.content || result.msg)].filter(Boolean);
     const pairs = [
         ["Model", escapeHtml(result.model_name || modelName(program) || "")],
         ["Input tokens", formatInt(result.input_tokens)],
@@ -549,7 +566,7 @@ function llmHtml(program, details) {
         ["LLM cost", result.cost === null || result.cost === undefined ? "" : escapeHtml(formatCost(result.cost))],
     ].filter(([, value]) => value);
     if (pairs.length) blocks.push(kvHtml(pairs));
-    return blocks.length ? blocks.join("") : `<p class="muted">No LLM response was recorded.</p>`;
+    return blocks.length ? blocks.join("") : `<p class="muted">No LLM reply was recorded.</p>`;
 }
 
 /** Facts from the summary row; lines of code come from the details response once it arrives. */
