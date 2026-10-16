@@ -24,7 +24,10 @@ def test_sync_query_sleeps_between_transient_failures(monkeypatch):
 
     assert result is None
     assert calls == MAX_RETRIES
-    assert sleeps == [1] * (MAX_RETRIES - 1)
+    # Backoff gives a lost worker connection time to reconnect.
+    expected = [llm_module.RETRY_BACKOFF_SECONDS[min(i, len(llm_module.RETRY_BACKOFF_SECONDS) - 1)]
+                for i in range(MAX_RETRIES - 1)]
+    assert sleeps == expected
 
 
 def test_async_query_sleeps_between_transient_failures(monkeypatch):
@@ -49,4 +52,7 @@ def test_async_query_sleeps_between_transient_failures(monkeypatch):
 
     assert result is None
     assert calls == MAX_RETRIES
-    assert sleeps == [1] * (MAX_RETRIES - 1)
+    # Backoff gives a lost worker connection time to reconnect.
+    expected = [llm_module.RETRY_BACKOFF_SECONDS[min(i, len(llm_module.RETRY_BACKOFF_SECONDS) - 1)]
+                for i in range(MAX_RETRIES - 1)]
+    assert sleeps == expected

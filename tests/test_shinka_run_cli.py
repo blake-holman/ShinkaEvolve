@@ -158,6 +158,37 @@ def test_shinka_run_infers_fortran_initial_extensions(
     assert evo_config.init_program_path.endswith(f"initial{extension}")
 
 
+def test_shinka_run_infers_lean_initial_extension(tmp_path, monkeypatch):
+    _reset_dummy_runner()
+    task_dir = _make_task_dir(tmp_path)
+    (task_dir / "initial.py").unlink()
+    source = "-- EVOLVE-BLOCK-START\ndef value := 1\n-- EVOLVE-BLOCK-END\n"
+    (task_dir / "initial.lean").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(cli_run, "ShinkaEvolveRunner", _DummyRunner)
+
+    assert cli_run.main([
+        "--task-dir", str(task_dir),
+        "--results_dir", str(tmp_path / "results"),
+        "--num_generations", "2",
+        "--set", "evo.fixed_prompt=Preserve the theorem statement.",
+        "--set", "evo.persist_meta_state=true",
+        "--set", "db.repair_probability=0.25",
+        "--set", 'db.repair_filters={"private_metrics.status":"unresolved"}',
+        "--set", "db.repair_weight_metric=public_metrics.vertices",
+    ]) == 0
+
+    config = _DummyRunner.last_kwargs["evo_config"]
+    assert config.language == "lean"
+    assert config.init_program_path == str(task_dir / "initial.lean")
+    assert config.fixed_prompt == "Preserve the theorem statement."
+    assert config.persist_meta_state is True
+    assert _DummyRunner.last_kwargs["init_program_str"] == source
+    database = _DummyRunner.last_kwargs["db_config"]
+    assert database.repair_probability == 0.25
+    assert database.repair_filters == {"private_metrics.status": "unresolved"}
+    assert database.repair_weight_metric == "public_metrics.vertices"
+
+
 def test_shinka_run_infers_go_initial_extension(tmp_path, monkeypatch):
     _reset_dummy_runner()
     task_dir = _make_task_dir(tmp_path)

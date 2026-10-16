@@ -23,11 +23,15 @@ Configuration values are resolved in this order (later wins):
 
 ### EvolutionConfig (`shinka.core.EvolutionConfig`)
 
-Concurrency is configured on `ShinkaEvolveRunner`, not on `EvolutionConfig`.
+Concurrency is configured on `ShinkaEvolveRunner`. When `proposal_workers` is
+set, its total capacity determines proposal concurrency.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `task_sys_msg` | `Optional[str]` | `"You are an expert optimization and algorithm design assistant. Improve the program while preserving correctness and immutable regions."` | Task-specific system prompt. |
+| `fixed_prompt` | `Optional[str]` | `None` | Instructions appended to proposal prompts, including evolved prompts and repairs. |
+| `proposal_workers` | `Optional[List[dict]]` | `None` | Headless proposal workers, each with a unique `name`, positive `capacity`, and `launch_command` argv list. |
+| `proposal_workspace` | `dict` | `{}` | Absolute `mirrors`, a per-generation `prepare` command, and relative `artifacts` to return from proposal workers. |
 | `patch_types` | `List[str]` | `['diff', 'full', 'cross']` | Patch formats; supports `diff`, `full`, `cross`. |
 | `patch_type_probs` | `List[float]` | `[0.6, 0.3, 0.1]` | Sampling probabilities for `patch_types` (must sum to 1). |
 | `num_generations` | `int` | `50` | Target number of generations. |
@@ -44,8 +48,10 @@ Concurrency is configured on `ShinkaEvolveRunner`, not on `EvolutionConfig`.
 | `meta_llm_kwargs` | `dict` | `{}` | kwargs for meta-recommendation LLM calls. |
 | `meta_max_recommendations` | `int` | `5` | Max recommendations produced per meta step. |
 | `sample_single_meta_rec` | `bool` | `True` | Whether to sample one recommendation when multiple exist. |
+| `persist_meta_state` | `bool` | `False` | Save recommendations, summaries, scratchpad, and pending programs to `meta_state.json`; restore them when resuming. |
 | `embedding_model` | `Optional[str]` | `'text-embedding-3-small'` | Embedding model for code similarity. Also supports `local/<model>@http(s)://host[:port]/v1` for local OpenAI-compatible embedding endpoints, with optional `?api_key_env=ENV_VAR` for per-model credentials. |
 | `init_program_path` | `Optional[str]` | `'initial.py'` | Initial program path. |
+| `initial_population` | `Optional[List[dict]]` | `None` | Explicit seed entries, one per island, evaluated as generation zero. |
 | `results_dir` | `Optional[str]` | `None` | Results directory; auto-assigned when `None`. |
 | `enable_wandb_logging` | `bool` | `False` | Mirror evolution metrics to W&B. Existing SQLite and WebUI logging remains enabled. Install the `wandb` extra first. |
 | `wandb_project` | `Optional[str]` | `'shinka-evolve'` | W&B project used when wandb logging is enabled. |
@@ -146,12 +152,107 @@ with a rate-limited warning; population and final snapshots remain authoritative
 | `island_spawn_strategy` | `str` | `'initial'` | Spawn seed: `initial`, `best`, `archive_random`. |
 | `island_spawn_subtree_size` | `int` | `1` | Number of copied programs when spawning. |
 | `parent_selection_strategy` | `str` | `'weighted'` | Parent selector: `weighted`, `power_law`, `beam_search`, or `latest` (newest candidate regardless of correctness, no inspirations or forced fix mode). |
+| `repair_probability` | `float` | `0.0` | Probability of selecting an eligible incorrect candidate from the selected island for repair. |
+| `repair_sampling` | `str` | `'uniform'` | Repair selection: `uniform` or `weighted`. |
+| `repair_filters` | `dict` | `{}` | Equality filters on dotted program fields, such as `private_metrics.status`. |
+| `repair_weight_metric` | `Optional[str]` | `None` | Dotted numeric field used for repair weighting; configured values must be finite and nonnegative for eligibility. |
+| `explicit_initial_population` | `bool` | `False` | Assign supplied seeds to their specified islands and count those islands as initialized, including incorrect seeds. Set automatically by `initial_population`. |
 | `exploitation_alpha` | `float` | `1.0` | Power-law strength for parent selection. |
 | `exploitation_ratio` | `float` | `0.2` | Probability of selecting from archive. |
 | `parent_selection_lambda` | `float` | `10.0` | Sigmoid sharpness for weighted parent selection. |
 | `num_beams` | `int` | `5` | Beam count for beam-search parent selection. |
 | `archive_selection_strategy` | `str` | `'fitness'` | Archive replacement strategy: `fitness` or `crowding`. |
 | `archive_criteria` | `Dict[str, float]` | `{'combined_score': 1.0}` | Weighted criteria for fitness archive scoring. |
+
+### Native task options
+
+`shinka_run` recognizes `initial.lean` and selects the Lean language automatically.
+The fields above also work in YAML (`evo`/`db` or `evo_config`/`db_config`) and
+through `--set`; a task does not need a runner subclass to use them.
+
+An explicit initial population supplies one entry per configured island. Each
+entry requires `name`, `path`, and `sha256` (a lowercase SHA-256 hex digest).
+Optional `require_correct` defaults to `false`. The runner evaluates all seeds
+before inserting the population.
+Incorrect seeds can initialize islands when correctness is not required. All
+seeds count together as generation zero, followed by generations 1 through
+`num_generations - 1`. Resuming preserves the saved seeds and their identities,
+including a run stopped immediately after initialization.
+
+Repair selection keeps the sampled island. Only incorrect candidates matching
+all `repair_filters` are eligible. When `repair_weight_metric` is configured,
+candidates missing a finite nonnegative value are excluded, including in uniform
+mode. Weighted selection uses `1 / ((1 + metric) * (1 + children_count))`; without
+a metric, it uses `1 / (1 + children_count)`. If no candidate qualifies, ordinary
+parent selection continues. Repair context uses the selected candidate's ancestry.
+
+For example, a task can revisit unfinished candidates with probability 0.25:
+
+```yaml
+evo:
+  fixed_prompt: Preserve the required interface and checked assumptions.
+  persist_meta_state: true
+db:
+  repair_probability: 0.25
+  repair_sampling: weighted
+  repair_filters:
+    private_metrics.status: unresolved
+  repair_weight_metric: public_metrics.vertices
+```
+
+### Distributed proposals
+
+Proposal workers run Headless commands on Linux machines. Each generation uses
+one worker slot for all proposal and repair retries. The slot is released after
+the requested artifacts return, before the candidate waits for central
+evaluation. The coordinator schedules evaluations using the configured job
+backend; local jobs run there. SQLite writes, recommendations, prompt evolution,
+and novelty judgments stay on the coordinator.
+
+```yaml
+max_evaluation_jobs: 1
+evo:
+  llm_models: ["headless/codex@gpt-6-luna?effort=max"]
+  proposal_workers:
+    - name: local
+      capacity: 1
+      launch_command: []
+    - name: remote
+      capacity: 1
+      launch_command:
+        - ssh
+        - worker-host
+        - python3
+        - /srv/ShinkaEvolve/shinka/core/worker_endpoint.py
+  proposal_workspace:
+    mirrors: [/srv/task, /srv/headless-cli]
+    prepare: [python3, /srv/task/prepare.py]
+    artifacts: [notes, "logs/*.json"]
+```
+
+An empty `launch_command` starts the endpoint locally. Other commands must start
+`shinka/core/worker_endpoint.py` with Python over stdin/stdout; SSH is one option.
+Install the endpoint, runtime, and Headless credentials on each worker before
+launching. The mirror paths must be absolute and have the same meaning on each
+worker. Mirrors supply task sources and dependencies; exclude credentials and
+active results directories. Initial setup transfers files whose contents differ.
+Existing mirrored inputs are immutable during a run; later proposals can receive
+new files, such as newly published library versions.
+
+For each leased generation, the optional preparation command first runs on the
+coordinator with `SHINKA_PROPOSAL_PREPARE=coordinator`. The generation directory
+is then copied to the worker, where the command runs with
+`SHINKA_PROPOSAL_PREPARE=worker`. Both commands use that generation directory as
+their working directory. This lets tasks select shared input versions centrally
+and set worker deadlines after transfer. Omit `prepare` when no setup is needed.
+`artifacts` lists relative files, directories, or glob patterns to copy back;
+candidate source and evaluation outputs remain coordinator-owned.
+
+The sum of worker capacities replaces `max_proposal_jobs`. Proposal production
+can fill those slots while central evaluations run, with a bounded waiting
+queue. Without `proposal_workers`, the existing local concurrency settings
+apply. Worker names, attempt IDs, selected models, efforts, and start/end times
+are recorded in candidate metadata.
 
 ### Job Configs (`shinka.launch.*JobConfig`)
 
@@ -300,6 +401,9 @@ evo_config:
 ```
 
 ### Controlled Oversubscription
+
+These adaptive settings apply when `proposal_workers` is unset. With configured
+workers, the pipeline target is evaluation capacity plus total worker capacity.
 
 When proposal generation is slower than evaluation, Shinka can keep extra
 proposal tasks in flight so evaluation workers spend less time idle.

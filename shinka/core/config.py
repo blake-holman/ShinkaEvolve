@@ -19,6 +19,11 @@ FOLDER_PREFIX = "gen"
 @dataclass
 class EvolutionConfig:
     task_sys_msg: Optional[str] = DEFAULT_TASK_SYS_MSG
+    fixed_prompt: Optional[str] = None
+    initial_population: Optional[List[Dict[str, Any]]] = None
+    persist_meta_state: bool = False
+    proposal_workers: Optional[List[Dict[str, Any]]] = None
+    proposal_workspace: Dict[str, Any] = field(default_factory=dict)
     patch_types: List[str] = field(default_factory=default_patch_types)
     patch_type_probs: List[float] = field(default_factory=default_patch_type_probs)
     num_generations: int = 50
@@ -84,3 +89,17 @@ class EvolutionConfig:
     prompt_epsilon: float = 0.1
     prompt_evo_top_k_programs: int = 3
     prompt_percentile_recompute_interval: int = 20
+
+    def __post_init__(self):
+        if self.fixed_prompt is not None and not isinstance(self.fixed_prompt, str):
+            raise ValueError("fixed_prompt must be a string or None.")
+        if type(self.persist_meta_state) is not bool:
+            raise ValueError("persist_meta_state must be a boolean.")
+        if self.proposal_workers is not None:
+            from shinka.core.workers import validate_worker_config
+
+            validate_worker_config(self.proposal_workers, self.proposal_workspace)
+            if any(not model.startswith("headless/") for model in self.llm_models):
+                raise ValueError("proposal_workers require Headless proposal models.")
+        elif self.proposal_workspace:
+            raise ValueError("proposal_workspace requires proposal_workers.")

@@ -10,6 +10,49 @@ from .query import query, query_async
 from .kwargs import sample_model_kwargs
 from .providers import QueryResult
 from .providers.errors import NonRetryableLLMError, StructuredOutputNotSupportedError
+
+RETRY_BACKOFF_SECONDS = (10, 30)
+
+
+def record_worker_error(message):
+    """Keep the latest query error on the generation's worker lease, if any."""
+    try:
+        from shinka.core.workers import current_worker
+    except ImportError:  # pragma: no cover
+        return
+    lease = current_worker.get()
+    if lease is not None:
+        lease.last_error = message
+
+
+def restrict_to_worker_agents(model_names, probabilities):
+    """Zero the sampling weight of models the current proposal worker cannot run.
+
+    A worker config may list ``agents`` (for example ``[codex]``); Headless
+    model names have the form ``headless/<agent>@<model>``. Models without an
+    agent prefix are unaffected. Returns ``probabilities`` unchanged when no
+    restriction applies or when it would exclude every model.
+    """
+    try:
+        from shinka.core.workers import current_worker
+    except ImportError:  # pragma: no cover
+        return probabilities
+    lease = current_worker.get()
+    agents = (lease.worker.get("agents") if lease is not None else None) or None
+    if not agents:
+        return probabilities
+    base = list(probabilities) if probabilities is not None else [1.0 / len(model_names)] * len(model_names)
+
+    def allowed(name):
+        if not name.startswith("headless/") or "@" not in name:
+            return True
+        return name[len("headless/"):].split("@", 1)[0] in agents
+
+    masked = [p if allowed(n) else 0.0 for n, p in zip(model_names, base)]
+    total = sum(masked)
+    if total <= 0:
+        return probabilities
+    return [p / total for p in masked]
 from .providers.model_resolver import resolve_model_backend
 from .constants import MAX_RETRIES
 
@@ -273,6 +316,7 @@ class LLMClient:
             if model_sample_probs is not None
             else self.model_sample_probs
         )
+        posterior = restrict_to_worker_agents(self.model_names, posterior)
         if self.verbose:
             lines = ["==> SAMPLING:"]
             default_probs = [1.0 / len(self.model_names)] * len(self.model_names)
@@ -374,9 +418,10 @@ class LLMClient:
                     f"{try_count + 1}/{MAX_RETRIES} Error in query "
                     f"for model={model_name} kwargs={llm_kwargs}: {str(e)}"
                 )
+                record_worker_error(str(e))
                 try_count += 1
                 if try_count < MAX_RETRIES:
-                    time.sleep(1)
+                    time.sleep(RETRY_BACKOFF_SECONDS[min(try_count - 1, len(RETRY_BACKOFF_SECONDS) - 1)])
         return None
 
 
@@ -587,6 +632,7 @@ class AsyncLLMClient:
             if model_sample_probs is not None
             else self.model_sample_probs
         )
+        posterior = restrict_to_worker_agents(self.model_names, posterior)
         if self.verbose:
             lines = ["==> SAMPLING:"]
             default_probs = [1.0 / len(self.model_names)] * len(self.model_names)
@@ -683,10 +729,12 @@ class AsyncLLMClient:
             except NonRetryableLLMError:
                 raise
             except Exception as e:
-                logger.info(f"{try_count + 1}/{MAX_RETRIES} Error in query: {str(e)}")
+                logger.warning(f"{try_count + 1}/{MAX_RETRIES} Error in query: {str(e)}")
+                record_worker_error(str(e))
                 try_count += 1
                 if try_count < MAX_RETRIES:
-                    await asyncio.sleep(1)
+                    # Lost worker connections need time to reconnect; 1 s was too short.
+                    await asyncio.sleep(RETRY_BACKOFF_SECONDS[min(try_count - 1, len(RETRY_BACKOFF_SECONDS) - 1)])
         return None
 
     async def _query_async_with_retry(

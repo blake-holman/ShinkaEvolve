@@ -252,46 +252,58 @@ def _kill_process_tree(process):
         pass
 
 
+async def _run_headless_command_once_async(*, model, command):
+    if _uses_shell_invocation(model):
+        process = await asyncio.create_subprocess_shell(
+            shlex.join(command),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            executable="/bin/sh",
+            env=_subprocess_env(model),
+            start_new_session=(os.name == "posix"),
+        )
+    else:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_subprocess_env(model),
+            start_new_session=(os.name == "posix"),
+        )
+    communication = asyncio.create_task(process.communicate())
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            asyncio.shield(communication),
+            timeout=headless_timeout(),
+        )
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        _kill_process_tree(process)
+        await asyncio.shield(communication)
+        raise
+    return subprocess.CompletedProcess(
+        args=command,
+        returncode=process.returncode,
+        stdout=stdout.decode("utf-8", errors="replace"),
+        stderr=stderr.decode("utf-8", errors="replace"),
+    )
+
+
 async def _run_headless_command_async(
     *,
     model: HeadlessModel,
     command: list[str],
 ):
+    from shinka.core.workers import current_worker
+
+    worker = current_worker.get()
     attempts = _CLAUDE_TRANSIENT_RETRIES + 1
     for attempt in range(attempts):
-        if _uses_shell_invocation(model):
-            process = await asyncio.create_subprocess_shell(
-                shlex.join(command),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                executable="/bin/sh",
-                env=_subprocess_env(model),
-                start_new_session=(os.name == "posix"),
-            )
+        if worker is None:
+            completed = await _run_headless_command_once_async(model=model, command=command)
         else:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_subprocess_env(model),
-                start_new_session=(os.name == "posix"),
+            completed = await worker.run_headless(
+                model=model, command=command, timeout=headless_timeout()
             )
-        communication = asyncio.create_task(process.communicate())
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                asyncio.shield(communication),
-                timeout=headless_timeout(),
-            )
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            _kill_process_tree(process)
-            await asyncio.shield(communication)
-            raise
-        completed = subprocess.CompletedProcess(
-            args=command,
-            returncode=process.returncode,
-            stdout=stdout.decode("utf-8", errors="replace"),
-            stderr=stderr.decode("utf-8", errors="replace"),
-        )
         if not _is_transient_claude_credit_error(model=model, completed=completed):
             return completed
         if attempt < attempts - 1:
@@ -346,12 +358,18 @@ def _numeric_values(value: Any) -> list[float]:
 
 
 def _parse_stdout(stdout: str) -> tuple[str, dict[str, Any]]:
-    lines = [line for line in stdout.splitlines() if line.strip()]
-    if not lines:
+    """Split Headless stdout into the assistant text and the final usage JSON line.
+
+    The assistant text is kept verbatim apart from surrounding blank lines:
+    SEARCH blocks quote the parent code exactly, including its blank lines.
+    """
+    text = stdout.rstrip()
+    if not text.strip():
         raise ValueError("Headless stdout was empty.")
+    head, _, last = text.rpartition("\n")
 
     try:
-        payload = json.loads(lines[-1])
+        payload = json.loads(last)
     except json.JSONDecodeError as exc:
         raise ValueError("Headless stdout did not end with usage JSON.") from exc
 
@@ -359,7 +377,7 @@ def _parse_stdout(stdout: str) -> tuple[str, dict[str, Any]]:
     if not isinstance(usage, dict):
         raise ValueError("Headless usage JSON must contain a top-level usage object.")
 
-    content = "\n".join(lines[:-1]).strip()
+    content = head.strip("\n").rstrip()
     if not content:
         raise ValueError("Headless assistant content was empty.")
 
@@ -432,6 +450,10 @@ def query_headless(
     model_posteriors=None,
     **kwargs,
 ) -> QueryResult:
+    from shinka.core.workers import current_worker
+
+    if current_worker.get() is not None:
+        raise RuntimeError("Proposal workers require asynchronous Headless queries.")
     if output_model is not None:
         raise ValueError("Headless does not support structured output.")
 
@@ -513,10 +535,7 @@ async def query_headless_async(
     )
 
     try:
-        completed = await _run_headless_command_async(
-            model=parsed_model,
-            command=command,
-        )
+        completed = await _run_headless_command_async(model=parsed_model, command=command)
     except asyncio.TimeoutError as exc:
         raise TimeoutError(
             f"Headless query timed out after {headless_timeout()}s."

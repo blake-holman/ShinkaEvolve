@@ -95,9 +95,9 @@ def _models_dev_entry(provider: str, model_id: str, model: Any) -> ModelPrice | 
         provider=provider,
         kind=kind,
         input_price=input_price / MILLION,
-        output_price=None if output_price is None else output_price / MILLION,
+        output_price=output_price / MILLION if kind == "llm" else None,
         input_price_tier2=_tier_price(tier, "input"),
-        output_price_tier2=_tier_price(tier, "output"),
+        output_price_tier2=_tier_price(tier, "output") if kind == "llm" else None,
         tier_threshold=None if tier is None else tier["size"],
         is_reasoning=reasoning,
         think_temp_fixed=bool(

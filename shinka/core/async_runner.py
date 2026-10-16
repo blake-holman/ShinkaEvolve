@@ -4,6 +4,7 @@ Provides fully asynchronous evolution pipeline with concurrent LLM sampling.
 """
 
 import json
+from copy import copy
 import asyncio
 import logging
 import shutil
@@ -14,6 +15,7 @@ import math
 import psutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AsyncExitStack
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -52,6 +54,11 @@ from shinka.core.async_summarizer import AsyncMetaSummarizer
 from shinka.core.async_novelty_judge import AsyncNoveltyJudge
 from shinka.core.novelty_judge import NoveltyJudge
 from shinka.core.config import EvolutionConfig, FOLDER_PREFIX
+from shinka.core.initial_population import (
+    validate_initial_population,
+    verify_initial_population_resume,
+    initialize_population,
+)
 from shinka.core.pipeline_timing import (
     summarize_timing_metadata,
     with_pipeline_timing,
@@ -104,6 +111,32 @@ def _print_gradient_logo_and_mirror(
         # Never break startup output if log write fails.
         pass
 
+
+
+def empty_response_reason() -> str:
+    """Failure text for a query that returned nothing, with the underlying error when known."""
+    from shinka.core.workers import current_worker
+
+    lease = current_worker.get()
+    if lease is not None and lease.last_error:
+        return f"LLM query failed: {lease.last_error}"
+    return "LLM response content was None."
+
+def response_patch_type(content: str, sampled: str) -> str:
+    """The patch applier that matches what the response actually contains.
+
+    Agents sometimes answer a diff turn with a full rewrite (for example when a
+    task wrapper submits the agent's checked file) or a full-rewrite turn with
+    SEARCH/REPLACE blocks. Applying either with the wrong applier loses the
+    answer or pastes diff markers into the program.
+    """
+    has_diff = "<<<<<<< SEARCH" in content and ">>>>>>> REPLACE" in content
+    has_code = "<CODE>" in content and "</CODE>" in content
+    if has_diff and not has_code:
+        return "diff"
+    if has_code and not has_diff:
+        return "full" if sampled == "diff" else sampled
+    return sampled
 
 class RichTeeConsole:
     """Mirror rich console output to terminal and a plain-text log file."""
@@ -350,6 +383,14 @@ class ShinkaEvolveRunner:
             if self.verbose:
                 logger.info(f"Saved evaluate_str to {evaluate_path}")
 
+        self.worker_pool = None
+        if evo_config.proposal_workers is not None:
+            from shinka.core.workers import WorkerPool
+
+            self.worker_pool = WorkerPool(
+                evo_config.proposal_workers, evo_config.proposal_workspace, self.results_dir
+            )
+
         # Validate and adjust concurrency settings based on available CPU cores
         cpu_count = os.cpu_count() or 4  # Default to 4 if can't detect
 
@@ -357,14 +398,17 @@ class ShinkaEvolveRunner:
         max_evaluation_jobs, max_proposal_jobs, max_db_workers = (
             self._validate_concurrency_settings(
                 max_evaluation_jobs,
-                max_proposal_jobs,
+                1 if self.worker_pool else max_proposal_jobs,
                 max_db_workers,
                 cpu_count,
             )
         )
 
         self.max_evaluation_jobs = max_evaluation_jobs
-        self.max_proposal_jobs = max_proposal_jobs
+        self.max_proposal_jobs = (
+            self.worker_pool.total_capacity
+            if self.worker_pool else max_proposal_jobs
+        )
         self.max_db_workers = max_db_workers
         self._configure_local_job_runtime(cpu_count)
 
@@ -917,6 +961,8 @@ class ShinkaEvolveRunner:
 
     def _compute_proposal_pipeline_target(self) -> int:
         """Compute the bounded proposal target for controlled oversubscription."""
+        if getattr(self, "worker_pool", None) is not None:
+            return self.max_evaluation_jobs + self.max_proposal_jobs
         base_target = self.max_evaluation_jobs
         if not getattr(self.evo_config, "enable_controlled_oversubscription", False):
             return base_target
@@ -1188,6 +1234,15 @@ class ShinkaEvolveRunner:
 
     async def _setup_async(self):
         """Setup initial program (results directory already created)."""
+        seeds = validate_initial_population(
+            self.evo_config.initial_population, self.db_config.num_islands
+        )
+        self.db_config.explicit_initial_population = seeds is not None
+        if self.evo_config.persist_meta_state and self.meta_summarizer is not None:
+            self.meta_summarizer.enable_persistence(
+                Path(self.results_dir) / "meta_state.json"
+            )
+
         # Update database path to be in results directory
         db_path = Path(f"{self.results_dir}/programs.sqlite")
 
@@ -1206,6 +1261,8 @@ class ShinkaEvolveRunner:
             enable_deadlock_debugging=self.enable_deadlock_debugging,
         )
 
+        verify_initial_population_resume(self.db, seeds)
+
         # Initialize prompt evolution database if enabled
         if self.evo_config.evolve_prompts:
             await self._setup_prompt_evolution()
@@ -1219,8 +1276,11 @@ class ShinkaEvolveRunner:
                 results_dir=Path(self.results_dir),
             )
 
+        if getattr(self, "worker_pool", None) is not None:
+            await self.worker_pool.prepare()
+
         # Check if we're resuming from an existing database
-        resuming_run = db_path.exists() and self.db.last_iteration > 0
+        resuming_run = await self.async_db.get_total_program_count_async() > 0
 
         # Load bandit state if resuming
         if resuming_run:
@@ -1241,6 +1301,8 @@ class ShinkaEvolveRunner:
 
             # Update state for resuming
             await self._restore_resume_progress()
+        elif seeds is not None:
+            await initialize_population(self, seeds)
         else:
             # Generate or copy initial program only if NOT resuming
             if (
@@ -1264,7 +1326,11 @@ class ShinkaEvolveRunner:
                         "`init_program_path` not provided, "
                         "generating initial program with LLM..."
                     )
-                await self._generate_initial_program()
+                async with AsyncExitStack() as worker_scope:
+                    worker = await self._acquire_proposal_worker(
+                        worker_scope, Path(self.results_dir) / f"{FOLDER_PREFIX}_0"
+                    )
+                    await self._generate_initial_program(worker_scope, worker)
 
         self._log_wandb_population_progress()
 
@@ -1285,7 +1351,7 @@ class ShinkaEvolveRunner:
         self.prompt_db = SystemPromptDatabase(prompt_config)
 
         # Check if we're resuming from existing prompt database
-        if prompt_db_path.exists() and self.prompt_db.last_generation > 0:
+        if self.prompt_db._count_prompts_in_db() > 0:
             logger.info(
                 f"Resuming prompt evolution from generation "
                 f"{self.prompt_db.last_generation}"
@@ -1352,6 +1418,19 @@ class ShinkaEvolveRunner:
         # Fallback to config prompt if no prompts in archive
         logger.warning("No prompts in archive, using config prompt")
         return self.evo_config.task_sys_msg, None
+
+    def _sample_program_prompt(self, method, **kwargs):
+        """Keep fixed instructions outside evolved text and shared sampler state."""
+        prompt, prompt_id = self._get_current_system_prompt()
+        sampler = copy(self.prompt_sampler)
+        fixed = self.evo_config.fixed_prompt
+        sampler.task_sys_msg = prompt
+        if fixed:
+            sampler.task_sys_msg = (prompt or "").replace(fixed, "").strip() or None
+        system, *rest = getattr(sampler, method)(**kwargs)
+        if fixed:
+            system = system.replace(fixed, "").rstrip() + "\n\n" + fixed
+        return (system, *rest), prompt_id
 
     async def _update_prompt_fitness(
         self,
@@ -1679,6 +1758,8 @@ class ShinkaEvolveRunner:
             initial_program = Program(
                 id=str(uuid.uuid4()),
                 code=code,
+                language=self.evo_config.language,
+                system_prompt_id=(llm_metadata or {}).get("system_prompt_id"),
                 generation=0,
                 correct=correct_val,
                 combined_score=combined_score,
@@ -1753,13 +1834,15 @@ class ShinkaEvolveRunner:
                 postprocess_finished_at=postprocess_started_at,
             )
 
-            # Fall back to assuming it's correct
+            # An evaluation failure cannot establish correctness.
             initial_program = Program(
                 id=str(uuid.uuid4()),
                 code=code,
+                language=self.evo_config.language,
+                system_prompt_id=(llm_metadata or {}).get("system_prompt_id"),
                 generation=0,
                 public_metrics={"score": 0.0},
-                correct=True,
+                correct=False,
                 timestamp=datetime.now().timestamp(),
                 embedding=code_embedding,
                 metadata=base_metadata,
@@ -1869,9 +1952,18 @@ class ShinkaEvolveRunner:
                 "Database verification completed - ready for proposal generation"
             )
 
-    async def _generate_initial_program(self):
+    async def _acquire_proposal_worker(self, scope, work_dir):
+        pool = getattr(self, "worker_pool", None)
+        if pool is None:
+            return None
+        Path(work_dir).mkdir(parents=True, exist_ok=True)
+        return await scope.enter_async_context(pool.acquire(Path(work_dir)))
+
+    async def _generate_initial_program(self, worker_scope=None, worker=None):
         """Generate initial program using LLM, with retries."""
-        sys_msg, user_msg = self.prompt_sampler.initial_program_prompt()
+        (sys_msg, user_msg), current_prompt_id = self._sample_program_prompt(
+            "initial_program_prompt"
+        )
 
         # Select LLM once per program generation (before all attempts)
         model_sample_probs = None
@@ -1981,6 +2073,7 @@ class ShinkaEvolveRunner:
                 # Include LLM metadata for storage (structured like meta_edit_data)
                 llm_metadata = {
                     "patch_type": "init",
+                    "system_prompt_id": current_prompt_id,
                     "api_costs": total_costs,
                     "num_applied": 1,  # Initial program counts as 1 application
                     "patch_name": patch_name,
@@ -1993,6 +2086,11 @@ class ShinkaEvolveRunner:
                     "llm_result": response.to_dict() if response else None,
                     "diff_summary": {},  # No diff for initial program
                 }
+
+                if worker_scope is not None:
+                    await worker_scope.aclose()
+                if worker is not None:
+                    llm_metadata.update(worker.metadata())
 
                 # Pass the metadata to setup method
                 await self._setup_initial_program_with_metadata(
@@ -2601,6 +2699,7 @@ class ShinkaEvolveRunner:
         self.total_proposals_generated += 1
         proposal_started_at = time.time()
         sampling_worker_id = None
+        worker = None
         active_proposals_at_start = len(self.active_proposal_tasks)
         try:
             if self.verbose:
@@ -2663,22 +2762,44 @@ class ShinkaEvolveRunner:
                     )
                 return None
 
-            # Generate proposal for non-initial generation
-            return await self._generate_evolved_proposal(
-                generation,
-                task_id,
-                exec_fname,
-                results_dir,
-                meta_recs,
-                meta_summary,
-                meta_scratch,
-                proposal_started_at,
-                sampling_worker_id,
-                active_proposals_at_start,
-            )
+            async with AsyncExitStack() as worker_scope:
+                worker = await self._acquire_proposal_worker(worker_scope, gen_dir)
+                return await self._generate_evolved_proposal(
+                    generation,
+                    task_id,
+                    exec_fname,
+                    results_dir,
+                    meta_recs,
+                    meta_summary,
+                    meta_scratch,
+                    proposal_started_at,
+                    sampling_worker_id,
+                    active_proposals_at_start,
+                    worker_scope=worker_scope,
+                    worker=worker,
+                )
 
         except Exception as e:
             logger.error(f"Error generating proposal for generation {generation}: {e}")
+            if getattr(self, "worker_pool", None) is not None:
+                await self._record_terminal_failed_proposal(
+                    generation=generation,
+                    exec_fname=f"{self.results_dir}/{FOLDER_PREFIX}_{generation}/main.{self.lang_ext}",
+                    proposal_started_at=proposal_started_at,
+                    sampling_worker_id=sampling_worker_id,
+                    active_proposals_at_start=active_proposals_at_start,
+                    parent_program=None,
+                    archive_programs=[],
+                    top_k_programs=[],
+                    code_diff=None,
+                    meta_patch_data=worker.metadata() if worker is not None else {},
+                    code_embedding=None,
+                    embed_cost=0.0,
+                    novelty_cost=0.0,
+                    api_costs=0.0,
+                    failure_stage="proposal_worker",
+                    failure_reason=str(e),
+                )
             return None
         finally:
             # Cleanup: remove lock file and task tracking
@@ -2716,6 +2837,8 @@ class ShinkaEvolveRunner:
         proposal_started_at: float,
         sampling_worker_id: Optional[int],
         active_proposals_at_start: int,
+        worker_scope=None,
+        worker=None,
     ) -> Optional[AsyncRunningJob]:
         """Generate an evolved proposal through the full pipeline."""
         api_costs = 0.0
@@ -2855,12 +2978,18 @@ class ShinkaEvolveRunner:
                 )
 
                 if should_check:
-                    (
-                        should_accept,
-                        novelty_metadata,
-                    ) = await self.novelty_judge.assess_novelty_with_rejection_sampling_async(
-                        exec_fname, code_embedding, parent_program, self.db
-                    )
+                    from shinka.core.workers import current_worker
+
+                    token = current_worker.set(None)
+                    try:
+                        (
+                            should_accept,
+                            novelty_metadata,
+                        ) = await self.novelty_judge.assess_novelty_with_rejection_sampling_async(
+                            exec_fname, code_embedding, parent_program, self.db
+                        )
+                    finally:
+                        current_worker.reset(token)
 
                     # Update costs and metadata from novelty assessment (same as sync runner)
                     novelty_cost_from_check = novelty_metadata.get(
@@ -2915,6 +3044,12 @@ class ShinkaEvolveRunner:
             # If proposal was accepted, break from the outer novelty loop
             if proposal_accepted:
                 break
+
+        # Return artifacts and free the host before waiting for central evaluation.
+        if worker_scope is not None:
+            await worker_scope.aclose()
+        if worker is not None:
+            meta_patch_data.update(worker.metadata())
 
         # Add meta-recommendations/summary/scratchpad to meta_patch_data (same as sync runner)
         if meta_recs is not None:
@@ -3302,6 +3437,8 @@ class ShinkaEvolveRunner:
             "artifacts": artifacts,
             "failure_json_path": str(failure_path),
         }
+        payload.update({key: value for key, value in (meta_patch_data or {}).items()
+                        if key.startswith("worker_")})
 
         await write_file_async(
             str(failure_path),
@@ -3365,6 +3502,8 @@ class ShinkaEvolveRunner:
             stage=failure_stage,
             status="failed",
             details={
+                **{key: value for key, value in (meta_patch_data or {}).items()
+                   if key.startswith("worker_")},
                 "node_kind": "failed_proposal",
                 "language": failure_payload.get("language"),
                 "failure_stage": failure_stage,
@@ -3435,9 +3574,10 @@ class ShinkaEvolveRunner:
             model_sample_probs: Model sampling probabilities
             model_posterior: Model posterior probabilities
         """
+        current_prompt_id = None
         try:
-            # Generate fix prompt with ancestor inspirations
-            patch_sys, patch_msg, patch_type = self.prompt_sampler.sample_fix(
+            (patch_sys, patch_msg, patch_type), current_prompt_id = self._sample_program_prompt(
+                "sample_fix",
                 incorrect_program=incorrect_program,
                 ancestor_inspirations=ancestor_inspirations,
             )
@@ -3460,6 +3600,12 @@ class ShinkaEvolveRunner:
                 model_name = llm_kwargs.get("model_name", "unknown")
                 self.llm_selection.update_submitted(model_name)
 
+            # Defined before the loop: the summary after it reads them even when
+            # every attempt returned no response.
+            patch_name = None
+            patch_description = None
+            response = None
+            error_str = None
             for patch_attempt in range(self.evo_config.max_patch_attempts):
                 response = await self.llm.query(
                     msg=patch_msg,
@@ -3471,7 +3617,7 @@ class ShinkaEvolveRunner:
                 )
 
                 if not response or not response.content:
-                    error_str = "LLM response content was None."
+                    error_str = empty_response_reason()
 
                     await self._save_patch_attempt_async(
                         generation=generation,
@@ -3505,13 +3651,14 @@ class ShinkaEvolveRunner:
                 patch_dir = f"{self.results_dir}/{FOLDER_PREFIX}_{generation}"
                 language_str = str(self.evo_config.language)
 
-                # Fix patches always use full rewrite
+                # Fix turns ask for a full rewrite; see response_patch_type.
+                fix_patch_type = response_patch_type(response.content, "full")
                 result = await apply_patch_async(
                     original_str=incorrect_program.code,
                     patch_str=response.content,
                     patch_dir=patch_dir,
                     language=language_str,
-                    patch_type="full",  # Fix always uses full rewrite
+                    patch_type=fix_patch_type,
                     verbose=False,
                 )
 
@@ -3552,6 +3699,7 @@ class ShinkaEvolveRunner:
                     meta_patch_data = {
                         "api_costs": total_costs,
                         "patch_type": patch_type,
+                        "system_prompt_id": current_prompt_id,
                         "patch_name": patch_name,
                         "patch_description": patch_description,
                         "num_applied": num_applied,
@@ -3611,11 +3759,12 @@ class ShinkaEvolveRunner:
             meta_patch_data = {
                 "api_costs": total_costs,
                 "patch_type": patch_type,
+                "system_prompt_id": current_prompt_id,
                 "patch_name": patch_name,
                 "patch_description": patch_description,
                 "num_applied": 0,
                 "error_attempt": "Max fix attempts reached without success.",
-                "last_error_msg": error_str if "error_str" in locals() else None,
+                "last_error_msg": error_str,
                 "novelty_attempt": novelty_attempt,
                 "resample_attempt": resample_attempt,
                 "patch_attempt": self.evo_config.max_patch_attempts,
@@ -3627,7 +3776,8 @@ class ShinkaEvolveRunner:
 
         except Exception as e:
             logger.error(f"Error in fix patch async: {e}")
-            return None, {"api_costs": 0.0, "error_attempt": str(e)}, False
+            return None, {"api_costs": 0.0, "error_attempt": str(e),
+                          "system_prompt_id": current_prompt_id}, False
 
     async def _run_patch_async(
         self,
@@ -3644,26 +3794,15 @@ class ShinkaEvolveRunner:
         """Run async patch generation."""
         # Initialize prompt-related variables outside try block for exception handling
         current_prompt_id: Optional[str] = None
-        original_task_sys_msg = self.prompt_sampler.task_sys_msg
 
         try:
-            # Get system prompt (potentially evolved)
-            current_sys_prompt, current_prompt_id = self._get_current_system_prompt()
-
-            # Temporarily update prompt_sampler with evolved prompt
-            if current_sys_prompt:
-                self.prompt_sampler.task_sys_msg = current_sys_prompt
-
-            # Generate patch prompt
-            patch_sys, patch_msg, patch_type = self.prompt_sampler.sample(
+            (patch_sys, patch_msg, patch_type), current_prompt_id = self._sample_program_prompt(
+                "sample",
                 parent=parent_program,
                 archive_inspirations=archive_programs,
                 top_k_inspirations=top_k_programs,
                 meta_recommendations=meta_recs,
             )
-
-            # Restore original task_sys_msg
-            self.prompt_sampler.task_sys_msg = original_task_sys_msg
 
             # Convert numpy string to regular Python string
             patch_type = str(patch_type)
@@ -3700,7 +3839,7 @@ class ShinkaEvolveRunner:
                 )
 
                 if not response or not response.content:
-                    error_str = "LLM response content was None."
+                    error_str = empty_response_reason()
 
                     # Save failed attempt data
                     await self._save_patch_attempt_async(
@@ -3750,7 +3889,7 @@ class ShinkaEvolveRunner:
                     patch_str=response.content,
                     patch_dir=patch_dir,
                     language=language_str,
-                    patch_type=patch_type,
+                    patch_type=response_patch_type(response.content, patch_type),
                     verbose=False,
                 )
 
@@ -3864,8 +4003,6 @@ class ShinkaEvolveRunner:
 
         except Exception as e:
             logger.error(f"Error in async patch generation: {e}")
-            # Restore original task_sys_msg in case of exception
-            self.prompt_sampler.task_sys_msg = original_task_sys_msg
             return (
                 None,
                 {
@@ -5019,6 +5156,9 @@ class ShinkaEvolveRunner:
 
     async def _count_completed_generations_from_db(self) -> int:
         """Count persisted completed generations, excluding island copies."""
+        if getattr(self.db_config, "explicit_initial_population", False):
+            generations = await self.async_db.get_persisted_generation_ids_async()
+            return min(len(generations), self.evo_config.num_generations)
         total_programs = await self.async_db.get_total_program_count_async()
         island_copies = max(0, getattr(self.db_config, "num_islands", 1) - 1)
         completed_generations = max(0, total_programs - island_copies)
@@ -5535,6 +5675,8 @@ class ShinkaEvolveRunner:
 
     async def _cleanup_async(self):
         """Cleanup async resources."""
+        if self.evo_config.persist_meta_state and self.meta_summarizer is not None:
+            self.meta_summarizer.persist_state()
         try:
             # Cancel remaining proposal tasks
             for task in self.active_proposal_tasks.values():
@@ -5582,6 +5724,10 @@ class ShinkaEvolveRunner:
 
         except Exception as e:
             logger.error(f"Error in async cleanup: {e}")
+        finally:
+            pool = getattr(self, "worker_pool", None)
+            if pool is not None:
+                await pool.close()
 
     def _log_program_to_wandb(self, program: Program) -> None:
         wandb_logger = getattr(self, "wandb_logger", None)

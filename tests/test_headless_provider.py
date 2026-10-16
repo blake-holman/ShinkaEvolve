@@ -215,9 +215,7 @@ def test_initial_program_scopes_work_dir_to_headless(tmp_path, model):
     query = AsyncMock(side_effect=RuntimeError("request captured"))
     runner = SimpleNamespace(
         results_dir=str(tmp_path),
-        prompt_sampler=SimpleNamespace(
-            initial_program_prompt=Mock(return_value=("system", "user")),
-        ),
+        _sample_program_prompt=Mock(return_value=(("system", "user"), None)),
         llm_selection=None,
         llm=SimpleNamespace(get_kwargs=Mock(return_value={"model_name": model}), query=query),
         evo_config=SimpleNamespace(max_patch_attempts=1),

@@ -2,6 +2,7 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from functools import wraps
 from pathlib import Path
@@ -18,6 +19,29 @@ from shinka.embed import EmbeddingClient
 from shinka.defaults import default_archive_criteria
 
 logger = logging.getLogger(__name__)
+_MISSING_METRIC = object()
+
+
+def _validate_metric_path(path):
+    if not isinstance(path, str):
+        raise ValueError("Repair metric paths must be strings")
+    parts = path.split(".")
+    if (
+        len(parts) < 2
+        or parts[0] not in {"public_metrics", "private_metrics", "metadata"}
+        or not all(parts)
+    ):
+        raise ValueError(f"Invalid repair metric path: {path!r}")
+
+
+def _metric_value(program, path):
+    root, *keys = path.split(".")
+    value = getattr(program, root)
+    for key in keys:
+        if not isinstance(value, dict) or key not in value:
+            return _MISSING_METRIC
+        value = value[key]
+    return value
 
 
 def clean_nan_values(obj: Any) -> Any:
@@ -85,6 +109,13 @@ class DatabaseConfig:
         "weighted"  # "weighted"/"power_law" / "beam_search"
     )
 
+    # Optional revisits to incorrect programs within the selected island.
+    repair_probability: float = 0.0
+    repair_sampling: str = "uniform"
+    repair_filters: Dict[str, Any] = field(default_factory=dict)
+    repair_weight_metric: Optional[str] = None
+    explicit_initial_population: bool = False
+
     # Power-law parent selection parameters
     exploitation_alpha: float = 1.0  # 0=uniform, 1=power-law
     exploitation_ratio: float = 0.2  # Chance to pick from archive
@@ -102,6 +133,27 @@ class DatabaseConfig:
     #   Negative weight = lower is better (e.g., loc, complexity)
     # Weights represent relative importance after rank normalization
     archive_criteria: Dict[str, float] = field(default_factory=default_archive_criteria)
+
+    def __post_init__(self):
+        if (
+            isinstance(self.repair_probability, bool)
+            or not isinstance(self.repair_probability, (int, float))
+            or not 0 <= self.repair_probability <= 1
+        ):
+            raise ValueError("repair_probability must be between 0 and 1")
+        if self.repair_sampling not in ("uniform", "weighted"):
+            raise ValueError("repair_sampling must be uniform or weighted")
+        if not isinstance(self.repair_filters, Mapping):
+            raise ValueError("repair_filters must map metric paths to values")
+        self.repair_filters = dict(self.repair_filters)
+        for path in self.repair_filters:
+            _validate_metric_path(path)
+        if self.repair_weight_metric is not None:
+            _validate_metric_path(self.repair_weight_metric)
+        if not isinstance(self.explicit_initial_population, bool):
+            raise ValueError("explicit_initial_population must be a boolean")
+        if self.explicit_initial_population and self.num_islands < 1:
+            raise ValueError("An explicit initial population requires at least one island")
 
 
 def db_retry(max_retries=5, initial_delay=0.1, backoff_factor=2):
@@ -1312,6 +1364,47 @@ class ProgramDatabase:
 
         return parent, archive_inspirations, top_k_inspirations
 
+    def _sample_repair_parent(self, island_idx):
+        if (
+            self.config.repair_probability == 0
+            or not self.island_manager.are_all_islands_initialized()
+            or np.random.random() >= self.config.repair_probability
+        ):
+            return None
+
+        self.cursor.execute(
+            "SELECT * FROM programs WHERE correct = 0 AND island_idx = ?",
+            (island_idx,),
+        )
+        candidates = []
+        weights = []
+        for row in self.cursor.fetchall():
+            program = self._program_from_row(row)
+            if any(
+                _metric_value(program, path) != value
+                for path, value in self.config.repair_filters.items()
+            ):
+                continue
+            metric = 0
+            if self.config.repair_weight_metric is not None:
+                metric = _metric_value(program, self.config.repair_weight_metric)
+                if (
+                    isinstance(metric, bool)
+                    or not isinstance(metric, (int, float))
+                    or not math.isfinite(metric)
+                    or metric < 0
+                ):
+                    continue
+            candidates.append(program)
+            weights.append(1 / (1 + metric) / (1 + program.children_count))
+
+        if not candidates:
+            return None
+        probabilities = None
+        if self.config.repair_sampling == "weighted":
+            probabilities = np.asarray(weights) / sum(weights)
+        return candidates[np.random.choice(len(candidates), p=probabilities)]
+
     @db_retry()
     def sample_with_fix_mode(
         self,
@@ -1322,19 +1415,28 @@ class ProgramDatabase:
         max_resample_attempts=None,
     ) -> Tuple[Program, List[Program], List[Program], bool]:
         """
-        Sample a parent program, returning fix mode indicator if no correct
-        programs exist.
+        Sample a parent, optionally revisiting an incorrect program for repair.
 
         Returns:
             Tuple of (parent, archive_inspirations, top_k_inspirations, needs_fix)
-            where needs_fix is True if no correct programs exist and fix mode
-            should be used.
+            where needs_fix is True for a sampled repair or when the selected
+            island has no correct programs.
         """
         if not self.cursor:
             raise ConnectionError("DB not connected.")
 
         if self.config.parent_selection_strategy == "latest":
             parent, archive, top_k = self.sample()
+            repair_parent = self._sample_repair_parent(parent.island_idx)
+            if repair_parent is not None:
+                ancestors = self.get_ancestry(
+                    repair_parent.id,
+                    max_ancestors=(
+                        self.config.num_archive_inspirations
+                        + self.config.num_top_k_inspirations
+                    ),
+                )
+                return repair_parent, ancestors, [], True
             return parent, archive, top_k, False
 
         # Check if all islands are initialized
@@ -1452,19 +1554,31 @@ class ProgramDatabase:
             get_best_program_func=self.get_best_program,
         )
 
-        # Use the new method that returns fix mode
-        parent, needs_fix = parent_selector.sample_parent_with_fix_mode(
-            island_idx=sampled_island
-        )
+        parent = self._sample_repair_parent(sampled_island)
+        sampled_repair = parent is not None
+        needs_fix = sampled_repair
+        if parent is None:
+            parent, needs_fix = parent_selector.sample_parent_with_fix_mode(
+                island_idx=sampled_island
+            )
         if not parent:
             raise RuntimeError(f"Failed to sample parent from island {sampled_island}")
 
-        # If in fix mode, don't sample inspirations (they'd all be incorrect too)
+        # Optional repairs use their own ancestry as context.
         if needs_fix:
             logger.info(
                 f"FIX MODE: Using incorrect program {parent.id} "
                 f"(Gen: {parent.generation}, Score: {parent.combined_score})"
             )
+            ancestors = []
+            if sampled_repair:
+                ancestors = self.get_ancestry(
+                    parent.id,
+                    max_ancestors=(
+                        self.config.num_archive_inspirations
+                        + self.config.num_top_k_inspirations
+                    ),
+                )
             self._print_sampling_summary_helper(
                 parent,
                 [],
@@ -1474,8 +1588,10 @@ class ProgramDatabase:
                 max_novelty_attempts,
                 resample_attempt,
                 max_resample_attempts,
+                ancestor_inspirations=ancestors if sampled_repair else None,
+                is_fix_mode=sampled_repair,
             )
-            return parent, [], [], True
+            return parent, ancestors, [], True
 
         # Normal mode - sample inspirations
         num_archive_insp = (

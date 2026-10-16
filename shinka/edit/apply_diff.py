@@ -16,10 +16,10 @@ PATCH_PATTERN = re.compile(
 
 
 EVOLVE_START = re.compile(
-    r"(?:#|//|!|<!--|\(\*)?[^\S\r\n]*EVOLVE-BLOCK-START[^\S\r\n]*(?:-->|\*\))?"
+    r"(?:#|//|<!--|--|!|\(\*)?[^\S\r\n]*EVOLVE-BLOCK-START[^\S\r\n]*(?:-->|\*\))?"
 )
 EVOLVE_END = re.compile(
-    r"(?:#|//|!|<!--|\(\*)?[^\S\r\n]*EVOLVE-BLOCK-END[^\S\r\n]*(?:-->|\*\))?"
+    r"(?:#|//|<!--|--|!|\(\*)?[^\S\r\n]*EVOLVE-BLOCK-END[^\S\r\n]*(?:-->|\*\))?"
 )
 
 

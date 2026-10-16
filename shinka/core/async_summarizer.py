@@ -4,6 +4,7 @@ Provides non-blocking meta summarization with concurrent LLM calls.
 """
 
 import asyncio
+import json
 import logging
 from typing import List, Optional, Tuple
 from pathlib import Path
@@ -39,8 +40,52 @@ class AsyncMetaSummarizer:
         """
         self.sync_summarizer = sync_summarizer
         self.async_llm_client = async_llm_client
+        self.state_path = None
 
-    async def update_meta_memory_async(
+    def enable_persistence(self, path):
+        path = Path(path)
+        if path.exists():
+            try:
+                state = json.loads(path.read_text(encoding="utf-8"))
+                required = {"unprocessed_programs", "meta_summary", "meta_scratch_pad",
+                            "meta_recommendations", "meta_recommendations_history",
+                            "total_programs_meta_processed"}
+                if not isinstance(state, dict) or not required <= state.keys():
+                    raise ValueError("missing recommendation-state fields")
+                if any(state[key] is not None and not isinstance(state[key], str)
+                       for key in ("meta_summary", "meta_scratch_pad", "meta_recommendations")):
+                    raise ValueError("recommendations and summaries must be text")
+                history = state["meta_recommendations_history"]
+                count = state["total_programs_meta_processed"]
+                if (not isinstance(history, list) or any(not isinstance(item, str) for item in history)
+                        or type(count) is not int or count < 0):
+                    raise ValueError("invalid recommendation history or processed count")
+                programs = state["unprocessed_programs"]
+                if not isinstance(programs, list) or any(
+                    not isinstance(program, dict)
+                    or not {"id", "code", "language", "generation"} <= program.keys()
+                    for program in programs
+                ):
+                    raise ValueError("invalid unprocessed programs")
+                for program in programs:
+                    Program.from_dict(program)
+                if not self.load_meta_state(str(path)):
+                    raise ValueError("could not load recommendation state")
+            except (ValueError, TypeError, OSError) as error:
+                raise ValueError(f"Could not restore saved recommendation state: {path}") from error
+        self.state_path = path
+
+    def persist_state(self):
+        if self.state_path is not None:
+            self.save_meta_state(str(self.state_path))
+
+    async def update_meta_memory_async(self, best_program=None):
+        try:
+            return await self._update_meta_memory_async(best_program)
+        finally:
+            self.persist_state()
+
+    async def _update_meta_memory_async(
         self, best_program: Optional[Program] = None
     ) -> Tuple[Optional[str], float]:
         """
@@ -129,9 +174,13 @@ class AsyncMetaSummarizer:
         # Clear the evaluated programs list immediately after processing
         # This ensures that only programs added AFTER this meta update
         # will be saved as "unprocessed" programs
-        num_processed = len(self.sync_summarizer.evaluated_since_last_meta)
+        processed_ids = {program.id for program in programs_to_analyze}
+        num_processed = len(programs_to_analyze)
         self.sync_summarizer.total_programs_processed += num_processed
-        self.sync_summarizer.evaluated_since_last_meta = []
+        self.sync_summarizer.evaluated_since_last_meta = [
+            program for program in self.sync_summarizer.evaluated_since_last_meta
+            if program.id not in processed_ids
+        ]
         logger.info(
             f"Processed and cleared {num_processed} programs from meta memory "
             f"(total processed: {self.sync_summarizer.total_programs_processed})"
@@ -425,7 +474,8 @@ class AsyncMetaSummarizer:
     # Delegate read-only methods to sync summarizer
     def add_evaluated_program(self, program: Program) -> None:
         """Add newly evaluated program to the tracking list."""
-        return self.sync_summarizer.add_evaluated_program(program)
+        self.sync_summarizer.add_evaluated_program(program)
+        self.persist_state()
 
     def should_update_meta(self, meta_rec_interval: Optional[int]) -> bool:
         """Check if meta update should be performed based on interval."""

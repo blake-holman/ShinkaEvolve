@@ -190,6 +190,36 @@ class CopyInitialProgramIslandStrategy(IslandStrategy):
         )
 
 
+class ExplicitInitialPopulationIslandStrategy(IslandStrategy):
+    """Assign each declared seed to its island, including incorrect seeds."""
+
+    def get_initialized_islands(self):
+        self.cursor.execute(
+            "SELECT DISTINCT island_idx FROM programs WHERE island_idx IS NOT NULL"
+        )
+        return [row["island_idx"] for row in self.cursor.fetchall()]
+
+    def assign_island(self, program):
+        if program.parent_id:
+            self.cursor.execute(
+                "SELECT island_idx FROM programs WHERE id = ?", (program.parent_id,)
+            )
+            parent = self.cursor.fetchone()
+            if parent is None or parent["island_idx"] is None:
+                raise ValueError(f"Parent {program.parent_id} has no assigned island")
+            program.island_idx = parent["island_idx"]
+            return
+
+        index = program.metadata.get("initial_population_index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or not 0 <= index < self.config.num_islands
+        ):
+            raise ValueError("Initial seed requires a valid initial_population_index")
+        program.island_idx = index
+
+
 class IslandMigrationStrategy(ABC):
     """Abstract base class for island migration strategies."""
 
@@ -510,8 +540,13 @@ class CombinedIslandManager:
         self.conn = conn
         self.config = config
 
-        self.assignment_strategy = assignment_strategy or (
-            CopyInitialProgramIslandStrategy(cursor, conn, config)
+        default_assignment = (
+            ExplicitInitialPopulationIslandStrategy
+            if getattr(config, "explicit_initial_population", False)
+            else CopyInitialProgramIslandStrategy
+        )
+        self.assignment_strategy = assignment_strategy or default_assignment(
+            cursor, conn, config
         )
         self.migration_strategy = migration_strategy or (
             ElitistMigrationStrategy(cursor, conn, config)
